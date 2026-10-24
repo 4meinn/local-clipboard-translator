@@ -31,6 +31,14 @@ python -m venv .venv
 
 The app lives in the system tray. Click the tray icon to open the settings: language pair, character, size, bubble behaviour, model, start with Windows.
 
+## Build the installer
+
+```
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+This runs PyInstaller (`dist\LocalClipboardTranslator\`) and, if [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed, produces `dist\LocalClipboardTranslator-Setup.exe`. The installer needs no admin rights, can add the app to Windows startup and leaves nothing in the taskbar: after launch it sits in the tray.
+
 ## Project layout
 
 ```

@@ -42,6 +42,8 @@ class SettingsStore(QObject):
         self.first_run = not self._path.exists()
         self.values = Settings()
         self._load()
+        if self.first_run:
+            self._save()  # so the welcome window only appears once
 
     def _load(self):
         try:
