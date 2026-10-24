@@ -28,6 +28,9 @@ class Settings:
     bubble_seconds: float = 6.0
     selectable: bool = False
     model: str = ""  # empty means pick the best installed model automatically
+    trigger: str = "auto"  # "auto" (every copy), "double" (same text copied twice), "hotkey"
+    hotkey: str = "Ctrl+Alt+T"
+    pause_fullscreen: bool = True  # pause translating and walk away while a fullscreen app is in front
     processor: str = "gpu"  # "gpu" or "cpu"
     keep_alive_min: int = 10  # minutes the model stays in memory after the last translation
     ui_language: str = "auto"

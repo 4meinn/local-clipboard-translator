@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout
                                QWidget)
 
 from lct import autostart, translator
+from lct.hotkey import HOTKEYS
 from lct.languages import NATIVE_NAME, SUPPORTED
 from lct.sprites import load_character, load_manifest
 
@@ -96,6 +97,24 @@ class SettingsWindow(QWidget):
         form.addRow(tr("lbl_duration"), self.duration)
         root.addWidget(box)
 
+        # When to translate
+        box = QGroupBox(tr("grp_trigger"))
+        form = QFormLayout(box)
+        self.trigger = QComboBox()
+        for key in ("auto", "double", "hotkey"):
+            self.trigger.addItem(tr("trig_" + key), key)
+        self.hotkey = QComboBox()
+        for name in HOTKEYS:
+            self.hotkey.addItem(name, name)
+        self.trigger_note = QLabel()
+        self.trigger_note.setWordWrap(True)
+        self.pause_fullscreen = QCheckBox(tr("chk_pause_fullscreen"))
+        form.addRow(self.trigger)
+        form.addRow(tr("lbl_hotkey"), self.hotkey)
+        form.addRow(self.trigger_note)
+        form.addRow(self.pause_fullscreen)
+        root.addWidget(box)
+
         # Model
         box = QGroupBox(tr("grp_model"))
         col = QVBoxLayout(box)
@@ -165,6 +184,9 @@ class SettingsWindow(QWidget):
         self.selectable.toggled.connect(lambda v: self._set("selectable", v))
         self.duration.valueChanged.connect(lambda v: self._set("bubble_seconds", float(v)))
         self.model.currentIndexChanged.connect(lambda: self._set("model", self.model.currentData() or ""))
+        self.trigger.currentIndexChanged.connect(self._trigger_changed)
+        self.hotkey.currentIndexChanged.connect(lambda: self._set("hotkey", self.hotkey.currentData()))
+        self.pause_fullscreen.toggled.connect(lambda v: self._set("pause_fullscreen", v))
         self.processor.currentIndexChanged.connect(self._processor_changed)
         self.keep_alive.currentIndexChanged.connect(lambda: self._set("keep_alive_min", self.keep_alive.currentData()))
         self.autostart.toggled.connect(self._autostart_changed)
@@ -182,6 +204,10 @@ class SettingsWindow(QWidget):
         self.size.setCurrentIndex(max(0, self.size.findData(s.scale)))
         self.selectable.setChecked(s.selectable)
         self.duration.setValue(s.bubble_seconds)
+        self.trigger.setCurrentIndex(max(0, self.trigger.findData(s.trigger)))
+        self.hotkey.setCurrentIndex(max(0, self.hotkey.findData(s.hotkey)))
+        self.pause_fullscreen.setChecked(s.pause_fullscreen)
+        self._update_trigger_note()
         self.processor.setCurrentIndex(max(0, self.processor.findData(s.processor)))
         self.keep_alive.setCurrentIndex(max(0, self.keep_alive.findData(s.keep_alive_min)))
         self._update_processor_note()
@@ -223,6 +249,15 @@ class SettingsWindow(QWidget):
             self.running.setText(self.tr("run_cpu", model=name))
         else:
             self.running.setText(self.tr("run_mixed", model=name, pct=round(vram * 100)))
+
+    def _update_trigger_note(self):
+        mode = self.trigger.currentData()
+        self.trigger_note.setText(self.tr("note_trig_" + mode))
+        self.hotkey.setEnabled(mode == "hotkey")
+
+    def _trigger_changed(self):
+        self._update_trigger_note()
+        self._set("trigger", self.trigger.currentData())
 
     def _update_processor_note(self):
         self.proc_note.setText(self.tr("note_cpu" if self.processor.currentData() == "cpu" else "note_gpu"))

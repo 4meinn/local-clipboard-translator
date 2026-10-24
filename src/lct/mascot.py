@@ -11,6 +11,7 @@ from lct.sprites import load_character
 ACCEL = 40.0  # px/s^2, so starts, stops and turns look gradual
 MIN_SPEED, MAX_SPEED = 14.0, 30.0  # a calm stroll; the pace only drifts a little between phases
 TAKEOFF_SPEED = 18.0  # flying characters are fully airborne from this speed
+AWAY_SPEED = 120.0  # brisk walk off screen when a fullscreen app takes over
 
 
 class Mascot(QWidget):
@@ -32,6 +33,9 @@ class Mascot(QWidget):
         self._shown_state = None  # what was last painted, to skip identical repaints
         self._pos = None  # last window position handed to the system
         self.hold = False  # stand still, e.g. while a bubble is open
+        self._away = False  # walking off screen (or already gone) because a fullscreen app is up
+        self._gone = False  # fully off screen, window hidden
+        self._entering = False  # walking back in from beyond the screen edge
         self._frame = 0
         self._facing = 1
         self._dir = random.choice((-1, 1))
@@ -76,9 +80,45 @@ class Mascot(QWidget):
     def _ground_y(self):
         return self._area().bottom() + 1 - self.height()
 
-    def _place(self):
+    def _bounds(self):
         ag = self._area()
-        self._x = min(max(self._x, ag.left()), ag.right() + 1 - self.width())
+        left, right = ag.left(), ag.right() + 1 - self.width()
+        if self._away or self._entering:  # free to cross the screen edge
+            return left - self.width() - 4, right + self.width() + 4
+        return left, right
+
+    def set_away(self, away):
+        """Walk off the nearest screen edge and hide, or walk back in from a random side."""
+        if away == self._away:
+            return
+        self._away = away
+        ag = self._area()
+        if away:
+            self.hold = False
+            self._entering = False
+            centre = self._x + self.width() / 2
+            self._dir = -1 if centre < (ag.left() + ag.right()) / 2 else 1
+            self._walking, self._target, self._phase_left = True, AWAY_SPEED, 1e9
+            return
+        self._entering = True
+        self._walking, self._phase_left = True, random.uniform(6.0, 10.0)
+        self._target = random.uniform(MIN_SPEED, MAX_SPEED)
+        if not self._gone:  # still on its way out: just turn back towards the middle
+            centre = self._x + self.width() / 2
+            self._dir = 1 if centre < (ag.left() + ag.right()) / 2 else -1
+            return
+        side = random.choice((-1, 1))  # which edge it comes in from
+        self._x = ag.left() - self.width() if side < 0 else ag.right() + 1
+        self._dir = -side
+        self._speed = 0.0
+        self._gone = False
+        self._pos = None
+        self._place()
+        self.show()
+
+    def _place(self):
+        lo, hi = self._bounds()
+        self._x = min(max(self._x, lo), hi)
         pos = (round(self._x), self._ground_y())
         if pos != self._pos:  # touching the window when nothing changed only causes flicker
             self._pos = pos
@@ -120,6 +160,8 @@ class Mascot(QWidget):
         now = time.perf_counter()
         dt = min(now - self._last, 0.1)
         self._last = now
+        if self._gone:
+            return
 
         self._phase_left -= dt
         if self._phase_left <= 0 and not self.hold:
@@ -133,10 +175,17 @@ class Mascot(QWidget):
         left, right = ag.left(), ag.right() + 1 - self.width()
         if self._speed > 0.5:
             self._x += self._dir * self._speed * dt
-            if self._x <= left or self._x >= right:
+            if self._away:
+                if self._x <= left - self.width() or self._x >= right + self.width():
+                    self._gone, self._speed = True, 0.0  # fully past the edge
+                    self.hide()
+                    return
+            elif not self._entering and (self._x <= left or self._x >= right):
                 self._x = min(max(self._x, left), right)
                 self._dir = -self._dir
                 self._speed *= 0.2  # slow right down before heading back
+        if self._entering and left <= self._x <= right:
+            self._entering = False
         self._facing = self._dir
         self._advance_frame(dt)
         self._place()

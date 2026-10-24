@@ -2,6 +2,8 @@ import ctypes
 import logging
 import sys
 import threading
+import time
+from collections import deque
 from logging.handlers import RotatingFileHandler
 
 from PySide6.QtCore import QObject, QTimer, Qt
@@ -11,21 +13,31 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from lct import __version__
 from lct.bubble import Bubble
-from lct.config import MAX_CHARS, SettingsStore, data_dir
+from lct.config import LONG_TEXT_CHARS, MAX_CHARS, SettingsStore, data_dir
+from lct.fullscreen import is_fullscreen_busy
+from lct.hotkey import HotkeyListener
 from lct.mascot import Mascot
 from lct.resources import asset_path
 from lct.settings_dialog import SettingsWindow
 from lct.setup_wizard import SetupWizard, current_state
 from lct.strings import Translator, resolve_ui_language
-from lct.translator import TranslationJob, unload_all
+from lct.translator import TranslationJob, unload_all, warm_up
 
 APP_ID = "LocalClipboardTranslator"
 UI_LANGUAGE_NAMES = {"en": "English", "tr": "Türkçe"}
 DEBOUNCE_MS = 150
+DOUBLE_COPY_SECONDS = 1.5  # two copies of the same text within this time count as a request
+FULLSCREEN_POLL_MS = 2000
+HISTORY_SIZE = 20
 
 
 def app_icon():
     return QIcon(str(asset_path("icon.ico")))
+
+
+def _shorten(text, limit=28):
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 class Controller(QObject):
@@ -39,6 +51,9 @@ class Controller(QObject):
         self.shown_text = ""
         self.settings_window = None
         self.wizard = None
+        self.history = deque(maxlen=HISTORY_SIZE)  # (source, translation); only kept in memory
+        self.fullscreen = False
+        self._last_copy = ("", 0.0)  # text and time of the previous copy, for the double-copy mode
 
         self.mascot = Mascot(store.character, store.scale)
         self.bubble = Bubble()
@@ -58,7 +73,26 @@ class Controller(QObject):
         self.clipboard.dataChanged.connect(self.debounce.start)
         store.changed.connect(self._setting_changed)
 
+        self.hotkeys = HotkeyListener(self._hotkey_pressed)
+        app.installNativeEventFilter(self.hotkeys)
+        app.aboutToQuit.connect(self.hotkeys.unregister)
+        self._apply_hotkey()
+
+        self.fullscreen_timer = QTimer(self, interval=FULLSCREEN_POLL_MS)
+        self.fullscreen_timer.timeout.connect(self._poll_fullscreen)
+        self.fullscreen_timer.start()
+
         self.mascot.show()
+        QTimer.singleShot(2000, self._warm_up)  # load the model while the user is still settling in
+
+    def _warm_up(self, unload_first=False):
+        """Load the model in the background so the first translation does not wait for it."""
+        s = self.store
+        def work():
+            if unload_first:
+                unload_all()  # Ollama keeps a loaded model as it is, so drop it before reloading
+            warm_up(s.model, s.processor, s.keep_alive_min)
+        threading.Thread(target=work, daemon=True).start()
 
     # --- tray and menus --------------------------------------------------------------
 
@@ -73,11 +107,36 @@ class Controller(QObject):
         setup.triggered.connect(self.show_wizard)
         quit_action = QAction(self.tr("tray_quit"), self.menu)
         quit_action.triggered.connect(self.app.quit)
+        self.history_menu = self.menu.addMenu(self.tr("tray_history"))
+        self.history_menu.aboutToShow.connect(self._fill_history_menu)
         for action in (settings, pause, setup):
             self.menu.addAction(action)
         self.menu.addSeparator()
         self.menu.addAction(quit_action)
         self.tray.setContextMenu(self.menu)
+
+    def _fill_history_menu(self):
+        self.history_menu.clear()
+        if not self.history:
+            empty = self.history_menu.addAction(self.tr("tray_history_empty"))
+            empty.setEnabled(False)
+            return
+        for source, translation in reversed(self.history):
+            label = f"{_shorten(source)}  →  {_shorten(translation)}".replace("&", "&&")
+            action = self.history_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, t=translation: self._show_text(t))
+        self.history_menu.addSeparator()
+        self.history_menu.addAction(self.tr("tray_history_clear")).triggered.connect(lambda: self.history.clear())
+
+    def _show_text(self, text):
+        """Show a finished text in the bubble again (used for the history)."""
+        self._stop_job()
+        self.noticed = True
+        self.shown_text = text
+        self.mascot.hold = True
+        self.bubble.begin(len(text) > LONG_TEXT_CHARS)
+        self.bubble.append(text)
+        self.bubble.finish()
 
     def _tray_activated(self, reason):
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
@@ -102,6 +161,7 @@ class Controller(QObject):
     def _wizard_finished(self):
         if self.settings_window:
             self.settings_window.refresh_models()
+        self._warm_up()
 
     def offer_setup_once(self):
         """On a fresh install, offer the setup wizard when Ollama or a model is missing."""
@@ -121,7 +181,13 @@ class Controller(QObject):
             self.bubble.selectable = s.selectable
         elif key == "processor":
             self._stop_job()
-            threading.Thread(target=unload_all, daemon=True).start()  # reload on the new processor
+            self._warm_up(unload_first=True)  # reload on the new processor
+        elif key == "model":
+            self._warm_up()
+        elif key in ("trigger", "hotkey"):
+            self._apply_hotkey()
+        elif key == "pause_fullscreen":
+            self._poll_fullscreen()
         elif key == "paused":
             self._build_menu()
             if s.paused:
@@ -137,20 +203,66 @@ class Controller(QObject):
 
     # --- clipboard -> translation ----------------------------------------------------
 
-    def _clipboard_settled(self):
-        if self.store.paused:
-            return
+    def _clipboard_text(self):
+        """The copied text, or None when there is nothing worth translating."""
         mime = self.clipboard.mimeData()
         if mime is None or not mime.hasText():
-            return
+            return None
         # Password managers flag their clipboard entries so that tools like this one skip them.
         if any("ExcludeClipboardContentFromMonitorProcessing" in f for f in mime.formats()):
-            return
+            return None
         text = mime.text().strip()
         if not text or not any(ch.isalpha() for ch in text):
+            return None
+        return text
+
+    def _active(self):
+        """Translating is off while paused by the user, or while a fullscreen app is in front."""
+        return not self.store.paused and not self.fullscreen
+
+    def _clipboard_settled(self):
+        mode = self.store.trigger
+        if mode == "hotkey" or not self._active():
+            return  # in hotkey mode copying alone never translates
+        text = self._clipboard_text()
+        if text is None:
             return
         if self.bubble.isVisible() and text in self.shown_text:
             return  # the user copied from our own bubble
+        if mode == "double":
+            previous, when = self._last_copy
+            now = time.monotonic()
+            self._last_copy = (text, now)
+            if text != previous or now - when > DOUBLE_COPY_SECONDS:
+                return  # first copy: wait for the second
+            self._last_copy = ("", 0.0)
+        self._translate(text)
+
+    def _hotkey_pressed(self):
+        if not self._active():
+            return
+        text = self._clipboard_text()
+        if text is not None:
+            self._translate(text)
+
+    def _apply_hotkey(self):
+        if self.store.trigger != "hotkey":
+            self.hotkeys.unregister()
+        elif not self.hotkeys.register(self.store.hotkey):
+            self.mascot.hold = True
+            self.bubble.notice(self.tr("msg_hotkey_busy", key=self.store.hotkey))
+
+    def _poll_fullscreen(self):
+        busy = self.store.pause_fullscreen and is_fullscreen_busy()
+        if busy == self.fullscreen:
+            return
+        self.fullscreen = busy
+        if busy:
+            self._stop_job()
+            self.bubble.close_now()
+        self.mascot.set_away(busy)
+
+    def _translate(self, text):
         self._stop_job()
         self.shown_text = ""
         if len(text) > MAX_CHARS:
@@ -197,6 +309,9 @@ class Controller(QObject):
         job = self.sender()
         if self._current() and not self.noticed:
             self.bubble.finish()
+            translation = self.shown_text.strip()
+            if translation:
+                self.history.append((job.text, translation))
         job.wait()
         self.jobs.discard(job)
 
