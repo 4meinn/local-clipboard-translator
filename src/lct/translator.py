@@ -17,7 +17,9 @@ HOST = "http://127.0.0.1:11434"
 CHUNK_CHARS = 350
 
 # Best first. The first one that is installed wins when the model setting is "auto".
-PREFERRED_MODELS = ["qwen3:8b", "gemma2:9b", "gemma3:12b", "qwen3:14b", "qwen2.5:14b", "qwen2.5:7b"]
+# gemma2:9b beat qwen3:8b on German to Turkish in our comparison (tools/try_translate.py);
+# it is also the model the setup wizard downloads.
+PREFERRED_MODELS = ["gemma2:9b", "qwen3:8b", "gemma3:12b", "qwen3:14b", "qwen2.5:14b", "qwen2.5:7b"]
 
 
 class OllamaUnavailable(Exception):

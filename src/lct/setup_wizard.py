@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 OLLAMA_URL = "https://ollama.com/download/OllamaSetup.exe"
 DEFAULT_MODEL = translator.PREFERRED_MODELS[0]
-MODEL_GB = {"qwen3:8b": 5.2}  # shown in the download prompt
+MODEL_GB = {"gemma2:9b": 5.4}  # shown in the download prompt
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 

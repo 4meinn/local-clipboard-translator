@@ -19,7 +19,7 @@ Copied text is capped at 3000 characters. Entries flagged by password managers a
 
 - Windows 10 or 11
 - [Ollama](https://ollama.com/download) installed and running
-- A model, for example `ollama pull qwen3:8b`. With "Automatic" selected in the settings the app uses the best supported model it finds installed.
+- A model. The default is `gemma2:9b` (`ollama pull gemma2:9b`, about 5.4 GB). It translated German to Turkish better than `qwen3:8b` in my tests. You can install any other Ollama model and pick it in the settings. With "Automatic" selected the app uses the best model it finds installed.
 
 You do not have to prepare any of this by hand. On first launch the setup wizard checks for Ollama and a model and, after asking, downloads and installs whatever is missing. It can be reopened from the tray menu or the settings.
 
