@@ -13,18 +13,23 @@ MIN_SPEED, MAX_SPEED = 22.0, 95.0
 
 
 class Mascot(QWidget):
-    """A frameless, click-through-where-transparent sprite that strolls along the taskbar."""
+    """A frameless sprite that strolls along the taskbar.
+
+    It ignores the mouse completely (WindowTransparentForInput). A window that takes mouse
+    events makes Windows re-evaluate the cursor every time it moves under the pointer, which
+    showed up as the cursor flickering while typing near the bottom of the screen.
+    """
 
     moved = Signal(QPoint)  # global position of the top centre of the sprite
-    clicked = Signal()
-    menu_requested = Signal(QPoint)
 
     def __init__(self, char_id, scale):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-                         | Qt.WindowDoesNotAcceptFocus)
+                         | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.char = None
+        self._shown_state = None  # what was last painted, to skip identical repaints
+        self._pos = None  # last window position handed to the system
         self.hold = False  # stand still, e.g. while a bubble is open
         self._frame = 0
         self._facing = 1
@@ -47,7 +52,7 @@ class Mascot(QWidget):
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.PreciseTimer)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(16)
+        self._timer.start(33)  # ~30 fps is plenty for a sprite that moves under 100 px/s
 
     def set_character(self, char_id, scale):
         self.char = load_character(char_id, scale)
@@ -56,6 +61,8 @@ class Mascot(QWidget):
         self._bob = 3 * scale if self.char.floating else 0
         self.setFixedSize(w, h + self._bob * 2)
         self._frame = 0
+        self._pos = None  # force a move and an anchor update for the new size
+        self._shown_state = None
         self._place()
         self.update()
 
@@ -69,11 +76,16 @@ class Mascot(QWidget):
     def _place(self):
         ag = self._area()
         self._x = min(max(self._x, ag.left()), ag.right() + 1 - self.width())
-        self.move(round(self._x), self._ground_y())
-        self._emit_moved()
+        pos = (round(self._x), self._ground_y())
+        if pos != self._pos:  # touching the window when nothing changed only causes flicker
+            self._pos = pos
+            self.move(*pos)
+            self.moved.emit(QPoint(pos[0] + self.width() // 2, pos[1] + self._bob))
 
-    def _emit_moved(self):
-        self.moved.emit(QPoint(self.x() + self.width() // 2, self.y() + self._bob))
+    def _bob_offset(self):
+        if not self.char.floating:
+            return 0
+        return round(self._bob * math.sin((time.perf_counter() - self._t0) * 2.2))
 
     # --- behaviour -------------------------------------------------------------------
 
@@ -121,7 +133,10 @@ class Mascot(QWidget):
         self._facing = self._dir
         self._advance_frame(dt)
         self._place()
-        self.update()
+        state = (self._frame, self._facing, self._bob_offset())
+        if state != self._shown_state:  # repaint only when the picture actually changes
+            self._shown_state = state
+            self.update()
 
     def _advance_frame(self, dt):
         frames = len(self.char.frames)
@@ -156,21 +171,12 @@ class Mascot(QWidget):
                 self._fidget_left = frames
                 self._next_fidget = random.uniform(3, 8)
 
-    # --- painting and input ----------------------------------------------------------
+    # --- painting --------------------------------------------------------------------
 
     def paintEvent(self, _event):
         frames = self.char.frames if self._facing > 0 else self.char.frames_flipped
         pix = frames[self._frame % len(frames)]
-        bob = 0
-        if self.char.floating:
-            bob = round(self._bob * math.sin((time.perf_counter() - self._t0) * 2.2))
         painter = QPainter(self)
         x = (self.width() - pix.width()) // 2
-        y = self.height() - self._bob - pix.height() + bob
+        y = self.height() - self._bob - pix.height() + self._bob_offset()
         painter.drawPixmap(x, y, pix)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-        elif event.button() == Qt.RightButton:
-            self.menu_requested.emit(event.globalPosition().toPoint())

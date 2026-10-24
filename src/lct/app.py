@@ -45,8 +45,6 @@ class Controller(QObject):
         self.bubble.seconds = store.bubble_seconds
         self.bubble.selectable = store.selectable
         self.mascot.moved.connect(self.bubble.set_anchor)
-        self.mascot.clicked.connect(self.bubble.close_now)
-        self.mascot.menu_requested.connect(self._show_menu)
         self.bubble.closed.connect(self._bubble_closed)
 
         self.tray = QSystemTrayIcon(app_icon())
@@ -80,9 +78,6 @@ class Controller(QObject):
         self.menu.addSeparator()
         self.menu.addAction(quit_action)
         self.tray.setContextMenu(self.menu)
-
-    def _show_menu(self, pos):
-        self.menu.popup(pos)
 
     def _tray_activated(self, reason):
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
