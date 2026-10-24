@@ -53,6 +53,7 @@ class Controller(QObject):
         self.wizard = None
         self.history = deque(maxlen=HISTORY_SIZE)  # (source, translation); only kept in memory
         self.fullscreen = False
+        self._setup_offered = False
         self._last_copy = ("", 0.0)  # text and time of the previous copy, for the double-copy mode
 
         self.mascot = Mascot(store.character, store.scale)
@@ -164,11 +165,14 @@ class Controller(QObject):
         self._warm_up()
 
     def offer_setup_once(self):
-        """On a fresh install, offer the setup wizard when Ollama or a model is missing."""
-        if self.store.setup_prompted:
+        """Open the setup wizard when Ollama or a model is missing, at most once per launch.
+
+        Not remembered across launches on purpose: settings survive an uninstall, so a
+        remembered "already offered" would keep the wizard from ever showing up again."""
+        if self._setup_offered:
             return
         if current_state()[0] != "ready":
-            self.store.set("setup_prompted", True)
+            self._setup_offered = True
             self.show_wizard()
 
     def _setting_changed(self, key):
@@ -277,6 +281,7 @@ class Controller(QObject):
         job.started_translation.connect(self._on_started)
         job.text_delta.connect(self._on_delta)
         job.notice.connect(self._on_notice)
+        job.setup_needed.connect(self._on_setup_needed)
         job.finished.connect(self._on_finished)
         self.jobs.add(job)
         self.job = job
@@ -298,6 +303,10 @@ class Controller(QObject):
         if self._current():
             self.shown_text += text
             self.bubble.append(text)
+
+    def _on_setup_needed(self):
+        if self._current():
+            self.offer_setup_once()
 
     def _on_notice(self, text):
         if self._current():

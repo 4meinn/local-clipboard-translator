@@ -38,5 +38,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
+[UninstallDelete]
+; Settings and the log live outside the install folder. Removing them keeps a reinstall
+; truly fresh, including the first-run welcome and the Ollama setup offer.
+Type: filesandordirs; Name: "{userappdata}\LocalClipboardTranslator"
+
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden; RunOnceId: "StopApp"

@@ -206,6 +206,7 @@ class TranslationJob(QThread):
     started_translation = Signal(bool)  # True when the text is long enough for the scrolling view
     text_delta = Signal(str)
     notice = Signal(str)  # a finished message instead of a translation (error, unsupported...)
+    setup_needed = Signal()  # Ollama or the model is missing: the setup wizard can fix it
 
     def __init__(self, text, lang_a, lang_b, model_setting, tr, processor="gpu", keep_alive_min=10):
         super().__init__()
@@ -231,12 +232,15 @@ class TranslationJob(QThread):
             installed = list_models()
             self.model = pick_model(self.model_setting, installed)
             if not self.model:
+                self.setup_needed.emit()
                 self.notice.emit(self.tr("msg_no_model"))
                 return
             self._run()
         except OllamaUnavailable:
+            self.setup_needed.emit()
             self.notice.emit(self.tr("msg_ollama_down"))
         except ModelMissing:
+            self.setup_needed.emit()
             self.notice.emit(self.tr("msg_model_missing", model=self.model))
         except Exception:
             log.exception("translation failed")

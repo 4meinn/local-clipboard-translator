@@ -35,7 +35,6 @@ class Settings:
     keep_alive_min: int = 10  # minutes the model stays in memory after the last translation
     ui_language: str = "auto"
     autostart: bool = False
-    setup_prompted: bool = False  # the setup wizard has been offered once automatically
     paused: bool = False
 
 
