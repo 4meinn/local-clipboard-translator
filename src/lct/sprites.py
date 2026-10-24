@@ -16,6 +16,8 @@ PROFILES = {
     "kitty": {"flying": True, "walk_frames": [1, 2, 3], "fidget": False, "hover": 2, "bob": 1},
     # Hermit's last frame pulls into the shell: a resting-only trick, not part of the walk.
     "hermit": {"walk_frames": [0, 1, 2], "fidget_frames": [3] * 7},
+    # Beetle's second frame has its eyes shut: a blink, only while standing and a quick one.
+    "beetle": {"walk_frames": [0, 2, 3], "fidget_frames": [1], "fidget_interval": (2.5, 6.0), "fidget_step": 0.16},
 }
 
 
@@ -32,6 +34,8 @@ class Character:
     idle_frame: int = 0
     fidget: bool = True
     fidget_frames: list = None  # frames shown, one per step, when it shuffles; default all frames
+    fidget_interval: tuple = (5.0, 12.0)  # seconds between shuffles while standing
+    fidget_step: float = 0.22  # seconds each shuffle frame is shown
     hover: int = 0
     bob: int = 0
 

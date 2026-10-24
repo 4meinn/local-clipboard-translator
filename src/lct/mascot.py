@@ -221,7 +221,7 @@ class Mascot(QWidget):
         # Standing: rest on the idle frame, and (if the character does it) shuffle now and then.
         if self._fidget_left > 0:
             self._frame_clock += dt
-            if self._frame_clock >= 0.22:
+            if self._frame_clock >= self.char.fidget_step:
                 self._frame_clock = 0
                 self._fidget_left -= 1
                 seq = self.char.fidget_frames
@@ -238,7 +238,7 @@ class Mascot(QWidget):
                     self._fidget_left = len(seq)
                     self._frame = seq[0]
                     self._frame_clock = 0
-                    self._next_fidget = random.uniform(5, 12)
+                    self._next_fidget = random.uniform(*self.char.fidget_interval)
 
     # --- painting --------------------------------------------------------------------
 
