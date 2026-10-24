@@ -1,6 +1,7 @@
 import ctypes
 import logging
 import sys
+import threading
 from logging.handlers import RotatingFileHandler
 
 from PySide6.QtCore import QObject, QTimer, Qt
@@ -13,9 +14,10 @@ from lct.bubble import Bubble
 from lct.config import MAX_CHARS, SettingsStore, data_dir
 from lct.mascot import Mascot
 from lct.settings_dialog import SettingsWindow
+from lct.setup_wizard import SetupWizard, current_state
 from lct.sprites import load_character
 from lct.strings import STRINGS, Translator, resolve_ui_language
-from lct.translator import TranslationJob
+from lct.translator import TranslationJob, unload_all
 
 APP_ID = "LocalClipboardTranslator"
 UI_LANGUAGE_NAMES = {"en": "English", "tr": "Türkçe"}
@@ -42,6 +44,7 @@ class Controller(QObject):
         self.noticed = False
         self.shown_text = ""
         self.settings_window = None
+        self.wizard = None
 
         self.mascot = Mascot(store.character, store.scale)
         self.bubble = Bubble()
@@ -74,9 +77,11 @@ class Controller(QObject):
         settings.triggered.connect(self.show_settings)
         pause = QAction(self.tr("tray_resume" if self.store.paused else "tray_pause"), self.menu)
         pause.triggered.connect(lambda: self.store.set("paused", not self.store.paused))
+        setup = QAction(self.tr("tray_setup"), self.menu)
+        setup.triggered.connect(self.show_wizard)
         quit_action = QAction(self.tr("tray_quit"), self.menu)
         quit_action.triggered.connect(self.app.quit)
-        for action in (settings, pause):
+        for action in (settings, pause, setup):
             self.menu.addAction(action)
         self.menu.addSeparator()
         self.menu.addAction(quit_action)
@@ -94,9 +99,29 @@ class Controller(QObject):
             self.settings_window = SettingsWindow(self.store, self.tr, UI_LANGUAGE_NAMES)
             self.settings_window.setWindowIcon(character_icon(self.store.character))
             self.settings_window.quit_requested.connect(self.app.quit)
+            self.settings_window.setup_requested.connect(self.show_wizard)
         self.settings_window.show()
         self.settings_window.raise_()
         self.settings_window.activateWindow()
+
+    def show_wizard(self):
+        wizard = SetupWizard(self.tr)
+        wizard.setAttribute(Qt.WA_DeleteOnClose)
+        wizard.finished_ok.connect(self._wizard_finished)
+        self.wizard = wizard
+        wizard.begin()
+
+    def _wizard_finished(self):
+        if self.settings_window:
+            self.settings_window.refresh_models()
+
+    def offer_setup_once(self):
+        """On a fresh install, offer the setup wizard when Ollama or a model is missing."""
+        if self.store.setup_prompted:
+            return
+        if current_state()[0] != "ready":
+            self.store.set("setup_prompted", True)
+            self.show_wizard()
 
     def _setting_changed(self, key):
         s = self.store
@@ -109,6 +134,9 @@ class Controller(QObject):
             self.bubble.seconds = s.bubble_seconds
         elif key == "selectable":
             self.bubble.selectable = s.selectable
+        elif key == "processor":
+            self._stop_job()
+            threading.Thread(target=unload_all, daemon=True).start()  # reload on the new processor
         elif key == "paused":
             self._build_menu()
             if s.paused:
@@ -147,7 +175,8 @@ class Controller(QObject):
         self.noticed = False
         self.mascot.hold = True
         self.bubble.show_thinking()
-        job = TranslationJob(text, self.store.lang_a, self.store.lang_b, self.store.model, self.tr)
+        job = TranslationJob(text, self.store.lang_a, self.store.lang_b, self.store.model, self.tr,
+                             self.store.processor, self.store.keep_alive_min)
         job.started_translation.connect(self._on_started)
         job.text_delta.connect(self._on_delta)
         job.notice.connect(self._on_notice)
@@ -234,6 +263,7 @@ def main():
     server.newConnection.connect(lambda: (server.nextPendingConnection(), controller.show_settings()))
     if first_run:
         controller.show_settings()
+    QTimer.singleShot(1500, controller.offer_setup_once)
     logging.getLogger(__name__).info("started v%s, languages %s/%s", __version__, store.lang_a, store.lang_b)
     return app.exec()
 

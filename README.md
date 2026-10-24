@@ -21,6 +21,17 @@ Copied text is capped at 3000 characters. Entries flagged by password managers a
 - [Ollama](https://ollama.com/download) installed and running
 - A model, for example `ollama pull qwen3:8b`. With "Automatic" selected in the settings the app uses the best supported model it finds installed.
 
+You do not have to prepare any of this by hand. On first launch the setup wizard checks for Ollama and a model and, after asking, downloads and installs whatever is missing. It can be reopened from the tray menu or the settings.
+
+## GPU or CPU
+
+The settings let you choose where the model runs:
+
+- **GPU**: fastest (1 to 3 seconds per translation on an RTX 5070 Laptop), but the model occupies graphics memory while loaded, which can hurt games.
+- **CPU**: slower (5 to 15 seconds), leaves the graphics card alone.
+
+The settings also show where the model is actually running, and how long it stays in memory after the last translation.
+
 ## Run from source
 
 ```
