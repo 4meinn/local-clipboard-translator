@@ -18,7 +18,14 @@ AWAY_SPEED = 120.0  # brisk walk off screen when a fullscreen app takes over
 PET_CHAIN = 1.0  # clicks closer together than this (seconds) count as one run of petting
 PET_REST = 1.6  # the character stays put this long after the last click
 OVERWHELM_AT = 8  # clicks in one run before it has had enough
-SPRINT_SPEED, SPRINT_TIME, SPRINT_ACCEL = 120.0, 0.9, 320.0  # the "too much love" dash
+# The "too much love" dash: a run of about a third of the screen, at a speed that scales with the
+# character so that small and large ones both look like they are really bolting.
+SPRINT_ACCEL, SPRINT_BRAKE = 700.0, 400.0
+SPRINT_BODY_LENGTHS_PER_SECOND, SPRINT_MIN_SPEED = 4.5, 200.0
+SPRINT_SCREEN_SHARE, SPRINT_MIN_DISTANCE, SPRINT_MAX_DISTANCE = 0.30, 350.0, 700.0
+
+HOVER_MOVE_WINDOW = 0.25  # the pointer must have been moved this recently to "grab" the character
+HOVER_RELEASE_AFTER = 0.15  # and it must stay off the character this long before it is let go
 
 GWL_EXSTYLE, WS_EX_TRANSPARENT = -20, 0x20
 _user32 = getattr(ctypes, "windll", None) and ctypes.windll.user32
@@ -51,6 +58,11 @@ class Mascot(QWidget):
         self.clickable = True  # off: the window never takes the mouse at all
         self._click_through = None  # unknown until the native window exists
         self._pressing = False
+        self._grabbed = False  # the pointer was moved onto the character and the window takes the mouse
+        self._pointer = None
+        self._pointer_moved_at = 0.0
+        self._off_since = None
+        self._hover_until = 0.0
         self._streak = 0
         self._last_click = 0.0
         self._petted_until = 0.0
@@ -194,7 +206,8 @@ class Mascot(QWidget):
         if self._gone:
             return
 
-        petted = now < self._petted_until  # being stroked: stand still
+        # being stroked or pointed at: stand still (but never in the middle of a dash)
+        petted = (now < self._petted_until or now < self._hover_until) and self._sprint_left <= 0
         self._phase_left -= dt
         if self._sprint_left > 0:
             self._sprint_left -= dt
@@ -207,8 +220,8 @@ class Mascot(QWidget):
         target = 0.0 if (self.hold or petted) else self._target
         if self._sprint_left > 0:
             accel = SPRINT_ACCEL
-        elif self._speed > MAX_SPEED * 1.5:
-            accel = ACCEL * 3  # settle down quickly after a dash
+        elif self._speed > MAX_SPEED * 1.5 and not self._away:
+            accel = SPRINT_BRAKE  # settle down quickly after a dash
         else:
             accel = ACCEL
         step = accel * dt
@@ -272,17 +285,43 @@ class Mascot(QWidget):
         _user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
 
     def _update_interactivity(self):
+        """Take the mouse only when the *user* moves the pointer onto the character.
+
+        When the pointer sits still and the character walks under it, the window must stay
+        click-through: otherwise the visible and transparent pixels take turns under the pointer,
+        the window flips between taking and ignoring the mouse many times a second, and whatever
+        is underneath (a text box, a panel) flickers and the cursor shape jumps."""
         if not self.clickable or self._away:
+            self._grabbed = False
             self._set_click_through(True)
             return
+        now = time.perf_counter()
         buttons = QGuiApplication.mouseButtons()
         if buttons == Qt.NoButton:
             self._pressing = False
         elif not self._pressing:
+            self._grabbed = False
             self._set_click_through(True)  # a drag that began in another app must pass through
             return
-        if not self._pressing:
-            self._set_click_through(not self._over_sprite(QCursor.pos()))
+        if self._pressing:
+            return
+        pointer = QCursor.pos()
+        if pointer != self._pointer:
+            self._pointer, self._pointer_moved_at = pointer, now
+        over = self._over_sprite(pointer)
+        if self._grabbed:
+            if over:
+                self._off_since = None
+                self._hover_until = now + 0.3  # stay put while it is being pointed at
+            elif self._off_since is None:
+                self._off_since = now
+            elif now - self._off_since >= HOVER_RELEASE_AFTER:  # off it for good, not a flicker
+                self._grabbed = False
+                self._set_click_through(True)
+        elif over and now - self._pointer_moved_at <= HOVER_MOVE_WINDOW:
+            self._grabbed, self._off_since = True, None
+            self._hover_until = now + 0.3
+            self._set_click_through(False)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -319,9 +358,12 @@ class Mascot(QWidget):
         ag = self._area()
         centre = self._x + self.width() / 2
         self._dir = 1 if centre < (ag.left() + ag.right()) / 2 else -1
-        self._petted_until = 0.0
-        self._sprint_left = SPRINT_TIME
-        self._walking, self._target, self._phase_left = True, SPRINT_SPEED, 1e9
+        room = (ag.right() - centre) if self._dir > 0 else (centre - ag.left())
+        distance = min(max(ag.width() * SPRINT_SCREEN_SHARE, SPRINT_MIN_DISTANCE), SPRINT_MAX_DISTANCE, room - 60)
+        speed = max(SPRINT_MIN_SPEED, SPRINT_BODY_LENGTHS_PER_SECOND * self.width())
+        self._petted_until = self._hover_until = 0.0
+        self._sprint_left = max(0.4, distance / speed)
+        self._walking, self._target, self._phase_left = True, speed, 1e9
 
     def _advance_frame(self, dt):
         frames = len(self.char.frames)
@@ -337,7 +379,7 @@ class Mascot(QWidget):
             if self._frame not in walk:
                 self._frame, self._step = walk[0], 0
             # Steps follow the pace of the stroll, within sensible limits.
-            interval = (self.char.frame_ms / 1000) * min(max(30.0 / self._speed, 0.8), 1.8)
+            interval = (self.char.frame_ms / 1000) * min(max(30.0 / self._speed, 0.4), 1.8)  # legs flail in a dash
             self._frame_clock += dt
             if self._frame_clock >= interval:
                 self._frame_clock = 0
