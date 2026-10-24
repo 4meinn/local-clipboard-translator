@@ -25,6 +25,7 @@ class Settings:
     lang_b: str = "de"
     character: str = "berry"
     scale: int = 3
+    clickable: bool = True  # clicking the character releases hearts; off keeps the mouse fully free
     bubble_seconds: float = 6.0
     selectable: bool = False
     model: str = ""  # empty means pick the best installed model automatically

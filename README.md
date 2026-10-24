@@ -29,6 +29,7 @@ You do not have to prepare any of this by hand. On first launch the setup wizard
 
 - **When it translates** (settings): every copy, only when you copy the same text twice, or when you press a global hotkey after copying. The hotkey mode is handy if you copy a lot of code or file paths.
 - **Fullscreen apps:** while a game, a fullscreen video or a presentation is in front, translating pauses. The character says goodbye in your Windows language (Turkish, German or English, otherwise English) and walks off screen. It walks back in when you leave fullscreen.
+- **Petting:** click the character and hearts in its colour float up while it stands still. Click more and more hearts come. Too many clicks in a row and it gets overwhelmed and dashes off before strolling on. TV Bot releases glitchy neon hearts instead. It can be turned off in the settings. The window only takes the mouse while the pointer is actually over the character, so it never gets in the way of typing or dragging.
 - **Pause:** "Pause translating" in the tray menu stops translating but the character keeps strolling.
 - **History:** the tray menu keeps the last 20 translations. Click one to see it in the bubble again. The history only lives in memory and is gone when you quit.
 - **Warm start:** the model is loaded in the background when the app starts, so the first translation is as fast as the rest.

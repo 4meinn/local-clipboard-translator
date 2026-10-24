@@ -1,8 +1,9 @@
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 
 from lct.resources import asset_path
 
@@ -18,6 +19,9 @@ PROFILES = {
     "hermit": {"walk_frames": [0, 1, 2], "fidget_frames": [3] * 7},
     # Beetle's second frame has its eyes shut: a blink, only while standing and a quick one.
     "beetle": {"walk_frames": [0, 2, 3], "fidget_frames": [1], "fidget_interval": (2.5, 6.0), "fidget_step": 0.16},
+    # TV Bot is grey and white, so plain hearts in its colour would be dull. It gets glitchy
+    # neon scanline hearts instead.
+    "tv_bot": {"heart_style": "robot", "heart_color": (77, 242, 214)},
 }
 
 
@@ -36,6 +40,9 @@ class Character:
     fidget_frames: list = None  # frames shown, one per step, when it shuffles; default all frames
     fidget_interval: tuple = (5.0, 12.0)  # seconds between shuffles while standing
     fidget_step: float = 0.22  # seconds each shuffle frame is shown
+    heart_style: str = "classic"  # "classic" or "robot"
+    heart_color: tuple = None  # overrides the colour taken from the sprite
+    main_color: QColor = None  # the character's dominant colour, used for its hearts
     hover: int = 0
     bob: int = 0
 
@@ -54,6 +61,7 @@ def load_character(char_id, scale):
         frame = frame.scaled(w * scale, h * scale, Qt.IgnoreAspectRatio, Qt.FastTransformation)
         char.frames.append(QPixmap.fromImage(frame))
         char.frames_flipped.append(QPixmap.fromImage(frame.mirrored(True, False)))
+    char.main_color = QColor(*char.heart_color) if char.heart_color else _main_color(strip.copy(QRect(0, 0, w, h)))
     count = len(char.frames)
     # The sheet frames are not a seamless loop (the last one does not lead back into the first),
     # so cycles run there and back: 0 1 2 3 2 1, instead of snapping from 3 to 0.
@@ -61,6 +69,23 @@ def load_character(char_id, scale):
     if char.fidget_frames is None:
         char.fidget_frames = list(range(1, count)) + list(range(count - 2, 0, -1))  # then back to idle
     return char
+
+
+def _main_color(image):
+    """The dominant body colour: the most common vivid colour, or the most common one that is not
+    the dark outline when the character is mostly grey or white (TV Bot, Ghost)."""
+    everything, vivid = Counter(), Counter()
+    for y in range(image.height()):
+        for x in range(image.width()):
+            c = image.pixelColor(x, y)
+            if c.alpha() < 128 or max(c.red(), c.green(), c.blue()) <= 70:
+                continue
+            rgb = (c.red(), c.green(), c.blue())
+            everything[rgb] += 1
+            if c.hsvSaturationF() > 0.4 and c.valueF() > 0.5:
+                vivid[rgb] += 1
+    pool = vivid if sum(vivid.values()) >= 0.12 * sum(everything.values()) else everything
+    return QColor(*pool.most_common(1)[0][0])
 
 
 def _there_and_back(frames):

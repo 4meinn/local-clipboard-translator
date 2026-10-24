@@ -15,6 +15,7 @@ from lct import __version__
 from lct.bubble import Bubble
 from lct.config import LONG_TEXT_CHARS, MAX_CHARS, SettingsStore, data_dir
 from lct.fullscreen import is_fullscreen_busy
+from lct.hearts import HeartsOverlay
 from lct.hotkey import HotkeyListener
 from lct.mascot import Mascot
 from lct.resources import asset_path
@@ -58,6 +59,9 @@ class Controller(QObject):
         self._last_copy = ("", 0.0)  # text and time of the previous copy, for the double-copy mode
 
         self.mascot = Mascot(store.character, store.scale)
+        self.mascot.clickable = store.clickable
+        self.hearts = HeartsOverlay()
+        self.mascot.hearts.connect(self._release_hearts)
         self.bubble = Bubble()
         self.bubble.seconds = store.bubble_seconds
         self.bubble.selectable = store.selectable
@@ -88,6 +92,10 @@ class Controller(QObject):
 
         self.mascot.show()
         QTimer.singleShot(2000, self._warm_up)  # load the model while the user is still settling in
+
+    def _release_hearts(self, count, anchor):
+        char = self.mascot.char
+        self.hearts.spawn(count, anchor, char.main_color, char.heart_style, self.store.scale)
 
     def _warm_up(self, unload_first=False):
         """Load the model in the background so the first translation does not wait for it."""
@@ -182,6 +190,8 @@ class Controller(QObject):
         s = self.store
         if key in ("character", "scale"):
             self.mascot.set_character(s.character, s.scale)
+        elif key == "clickable":
+            self.mascot.clickable = s.clickable
         elif key == "bubble_seconds":
             self.bubble.seconds = s.bubble_seconds
         elif key == "selectable":

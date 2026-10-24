@@ -82,6 +82,8 @@ class SettingsWindow(QWidget):
             self.size.addItem(f"{scale}x", scale)
         row.addRow(tr("lbl_size"), self.size)
         col.addLayout(row)
+        self.clickable = QCheckBox(tr("chk_clickable"))
+        col.addWidget(self.clickable)
         root.addWidget(box)
 
         # Bubble
@@ -181,6 +183,7 @@ class SettingsWindow(QWidget):
         self.lang_b.currentIndexChanged.connect(lambda: self._language_changed("lang_b"))
         self.characters.currentItemChanged.connect(self._character_changed)
         self.size.currentIndexChanged.connect(lambda: self._set("scale", self.size.currentData()))
+        self.clickable.toggled.connect(lambda v: self._set("clickable", v))
         self.selectable.toggled.connect(lambda v: self._set("selectable", v))
         self.duration.valueChanged.connect(lambda v: self._set("bubble_seconds", float(v)))
         self.model.currentIndexChanged.connect(lambda: self._set("model", self.model.currentData() or ""))
@@ -202,6 +205,7 @@ class SettingsWindow(QWidget):
             if self.characters.item(i).data(Qt.UserRole) == s.character:
                 self.characters.setCurrentRow(i)
         self.size.setCurrentIndex(max(0, self.size.findData(s.scale)))
+        self.clickable.setChecked(s.clickable)
         self.selectable.setChecked(s.selectable)
         self.duration.setValue(s.bubble_seconds)
         self.trigger.setCurrentIndex(max(0, self.trigger.findData(s.trigger)))

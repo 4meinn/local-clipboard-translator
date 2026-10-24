@@ -1,9 +1,11 @@
+import ctypes
 import math
 import random
 import time
+from ctypes import wintypes
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QPainter
+from PySide6.QtGui import QCursor, QGuiApplication, QPainter
 from PySide6.QtWidgets import QWidget
 
 from lct.sprites import load_character
@@ -13,22 +15,47 @@ MIN_SPEED, MAX_SPEED = 14.0, 30.0  # a calm stroll; the pace only drifts a littl
 TAKEOFF_SPEED = 18.0  # flying characters are fully airborne from this speed
 AWAY_SPEED = 120.0  # brisk walk off screen when a fullscreen app takes over
 
+PET_CHAIN = 1.0  # clicks closer together than this (seconds) count as one run of petting
+PET_REST = 1.6  # the character stays put this long after the last click
+OVERWHELM_AT = 8  # clicks in one run before it has had enough
+SPRINT_SPEED, SPRINT_TIME, SPRINT_ACCEL = 120.0, 0.9, 320.0  # the "too much love" dash
+
+GWL_EXSTYLE, WS_EX_TRANSPARENT = -20, 0x20
+_user32 = getattr(ctypes, "windll", None) and ctypes.windll.user32
+if _user32:
+    _user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    _user32.GetWindowLongW.restype = ctypes.c_long
+    _user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+    _user32.SetWindowLongW.restype = ctypes.c_long
+
 
 class Mascot(QWidget):
-    """A frameless sprite that strolls along the taskbar.
+    """A frameless sprite that strolls along the taskbar and can be petted with a click.
 
-    It ignores the mouse completely (WindowTransparentForInput). A window that takes mouse
-    events makes Windows re-evaluate the cursor every time it moves under the pointer, which
-    showed up as the cursor flickering while typing near the bottom of the screen.
+    The window lets mouse input fall straight through (WS_EX_TRANSPARENT) except while the
+    pointer is over one of the character's visible pixels. A window that takes mouse events makes
+    Windows re-evaluate the cursor whenever it moves under the pointer, which showed up as the
+    cursor flickering while typing near the bottom of the screen; this way it only happens when
+    you really point at the character. A mouse drag that started in another app never counts.
     """
 
     moved = Signal(QPoint)  # global position of the top centre of the sprite
+    hearts = Signal(int, QPoint)  # how many hearts to release, and the point on top of the sprite
 
     def __init__(self, char_id, scale):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-                         | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
+                         | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setCursor(Qt.PointingHandCursor)
+        self.clickable = True  # off: the window never takes the mouse at all
+        self._click_through = None  # unknown until the native window exists
+        self._pressing = False
+        self._streak = 0
+        self._last_click = 0.0
+        self._petted_until = 0.0
+        self._sprint_left = 0.0
+        self._hit_cache = {}
         self.char = None
         self._shown_state = None  # what was last painted, to skip identical repaints
         self._pos = None  # last window position handed to the system
@@ -71,6 +98,7 @@ class Mascot(QWidget):
         self.setFixedSize(w, h + self._pad)
         self._frame = self.char.idle_frame
         self._step = 0
+        self._hit_cache.clear()
         self._pos = None  # force a move and an anchor update for the new size
         self._shown_state = None
         self._place()
@@ -166,12 +194,24 @@ class Mascot(QWidget):
         if self._gone:
             return
 
+        petted = now < self._petted_until  # being stroked: stand still
         self._phase_left -= dt
-        if self._phase_left <= 0 and not self.hold:
+        if self._sprint_left > 0:
+            self._sprint_left -= dt
+            if self._sprint_left <= 0:  # dash over, back to the normal stroll
+                self._walking = False
+                self._begin_phase()
+        elif self._phase_left <= 0 and not (self.hold or petted):
             self._begin_phase()
 
-        target = 0.0 if self.hold else self._target
-        step = ACCEL * dt
+        target = 0.0 if (self.hold or petted) else self._target
+        if self._sprint_left > 0:
+            accel = SPRINT_ACCEL
+        elif self._speed > MAX_SPEED * 1.5:
+            accel = ACCEL * 3  # settle down quickly after a dash
+        else:
+            accel = ACCEL
+        step = accel * dt
         self._speed += max(-step, min(step, target - self._speed))
 
         ag = self._area()
@@ -196,6 +236,92 @@ class Mascot(QWidget):
         if state != self._shown_state:  # repaint only when the picture actually changes
             self._shown_state = state
             self.update()
+        self._update_interactivity()
+
+    # --- mouse: pet it ---------------------------------------------------------------
+
+    def _pixmap(self):
+        frames = self.char.frames if self._facing > 0 else self.char.frames_flipped
+        return frames[self._frame % len(frames)]
+
+    def _sprite_origin(self, pix):
+        return (self.width() - pix.width()) // 2, self.height() - pix.height() - self._lift()
+
+    def _over_sprite(self, global_pos):
+        """True when the point is on a visible (non-transparent) pixel of the character."""
+        local = self.mapFromGlobal(global_pos)
+        if not self.rect().contains(local):
+            return False
+        pix = self._pixmap()
+        ox, oy = self._sprite_origin(pix)
+        x, y = local.x() - ox, local.y() - oy
+        if not (0 <= x < pix.width() and 0 <= y < pix.height()):
+            return False
+        key = (self._facing > 0, self._frame % len(self.char.frames))
+        if key not in self._hit_cache:
+            self._hit_cache[key] = pix.toImage()
+        return self._hit_cache[key].pixelColor(x, y).alpha() > 40
+
+    def _set_click_through(self, on):
+        if on == self._click_through or _user32 is None:
+            return
+        self._click_through = on
+        hwnd = int(self.winId())
+        style = _user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        style = (style | WS_EX_TRANSPARENT) if on else (style & ~WS_EX_TRANSPARENT)
+        _user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+
+    def _update_interactivity(self):
+        if not self.clickable or self._away:
+            self._set_click_through(True)
+            return
+        buttons = QGuiApplication.mouseButtons()
+        if buttons == Qt.NoButton:
+            self._pressing = False
+        elif not self._pressing:
+            self._set_click_through(True)  # a drag that began in another app must pass through
+            return
+        if not self._pressing:
+            self._set_click_through(not self._over_sprite(QCursor.pos()))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._click_through = None
+        self._set_click_through(True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.clickable:
+            self._pressing = True
+            self._pet()
+
+    def mouseReleaseEvent(self, event):
+        self._pressing = False
+
+    def _sprite_top(self):
+        pix = self._pixmap()
+        return QPoint(self.x() + self.width() // 2, self.y() + self._sprite_origin(pix)[1])
+
+    def _pet(self):
+        """A click: hearts, and the character stays put. Many clicks in a row are too much."""
+        now = time.perf_counter()
+        self._streak = self._streak + 1 if now - self._last_click <= PET_CHAIN else 1
+        self._last_click = now
+        if self._streak >= OVERWHELM_AT:
+            self.hearts.emit(10, self._sprite_top())
+            self._streak = 0
+            self._start_sprint()
+            return
+        self._petted_until = now + PET_REST
+        self.hearts.emit(min(self._streak, 6), self._sprite_top())
+
+    def _start_sprint(self):
+        """Overwhelmed by all the love: dash off to the side with more room, then carry on."""
+        ag = self._area()
+        centre = self._x + self.width() / 2
+        self._dir = 1 if centre < (ag.left() + ag.right()) / 2 else -1
+        self._petted_until = 0.0
+        self._sprint_left = SPRINT_TIME
+        self._walking, self._target, self._phase_left = True, SPRINT_SPEED, 1e9
 
     def _advance_frame(self, dt):
         frames = len(self.char.frames)
@@ -243,9 +369,6 @@ class Mascot(QWidget):
     # --- painting --------------------------------------------------------------------
 
     def paintEvent(self, _event):
-        frames = self.char.frames if self._facing > 0 else self.char.frames_flipped
-        pix = frames[self._frame % len(frames)]
+        pix = self._pixmap()
         painter = QPainter(self)
-        x = (self.width() - pix.width()) // 2
-        y = self.height() - pix.height() - self._lift()
-        painter.drawPixmap(x, y, pix)
+        painter.drawPixmap(*self._sprite_origin(pix), pix)
