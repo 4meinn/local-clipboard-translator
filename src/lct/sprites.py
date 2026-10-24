@@ -14,6 +14,8 @@ PROFILES = {
     "balloon": {"floating": True, "frame_ms": 380, "hover": 3, "bob": 3},
     # Kitty's first frame is the grounded pose, the other three are in flight.
     "kitty": {"flying": True, "walk_frames": [1, 2, 3], "fidget": False, "hover": 2, "bob": 1},
+    # Hermit's last frame pulls into the shell: a resting-only trick, not part of the walk.
+    "hermit": {"walk_frames": [0, 1, 2], "fidget_frames": [3] * 7},
 }
 
 
@@ -29,6 +31,7 @@ class Character:
     walk_frames: list = None
     idle_frame: int = 0
     fidget: bool = True
+    fidget_frames: list = None  # frames shown, one per step, when it shuffles; default all frames
     hover: int = 0
     bob: int = 0
 
@@ -49,4 +52,6 @@ def load_character(char_id, scale):
         char.frames_flipped.append(QPixmap.fromImage(frame.mirrored(True, False)))
     if char.walk_frames is None:
         char.walk_frames = list(range(len(char.frames)))
+    if char.fidget_frames is None:
+        char.fidget_frames = list(range(len(char.frames)))
     return char

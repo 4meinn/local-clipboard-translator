@@ -171,16 +171,21 @@ class Mascot(QWidget):
             self._frame_clock += dt
             if self._frame_clock >= 0.22:
                 self._frame_clock = 0
-                self._frame = (self._frame + 1) % frames
                 self._fidget_left -= 1
+                seq = self.char.fidget_frames
                 if self._fidget_left == 0:
                     self._frame = self.char.idle_frame
+                else:
+                    self._frame = seq[len(seq) - self._fidget_left]
         else:
             self._frame = self.char.idle_frame
             if self.char.fidget:
                 self._next_fidget -= dt
                 if self._next_fidget <= 0:
-                    self._fidget_left = frames
+                    seq = self.char.fidget_frames
+                    self._fidget_left = len(seq)
+                    self._frame = seq[0]
+                    self._frame_clock = 0
                     self._next_fidget = random.uniform(5, 12)
 
     # --- painting --------------------------------------------------------------------
