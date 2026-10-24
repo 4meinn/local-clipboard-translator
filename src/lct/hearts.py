@@ -20,8 +20,9 @@ HEART = [
 ]
 OUTLINE = QColor(32, 24, 30)
 SIZE = (360, 240)  # overlay window, wide enough for a burst and tall enough to rise in
-LIFE = (1.5, 2.1)  # seconds a heart lives
-RISE = (34, 52)  # px per second, a gentle float
+LIFE = (2.8, 3.8)  # seconds a heart lives
+RISE = (16, 28)  # px per second, a lazy float
+FADE_FROM = 0.25  # share of its life a heart stays fully visible before it starts to fade
 
 
 def _lighter(color, amount=0.55):
@@ -62,12 +63,12 @@ class _Heart:
     def __init__(self, x, y, pix):
         self.x, self.y, self.pix = x, y, pix
         self.rise = random.uniform(*RISE)
-        self.vx = random.uniform(-6, 6)
+        self.vx = random.uniform(-4, 4)
         self.life = random.uniform(*LIFE)
         self.age = 0.0
         self.delay = 0.0
         self.phase = random.uniform(0, math.tau)
-        self.sway = random.uniform(3, 8)
+        self.sway = random.uniform(3, 7)
 
 
 class HeartsOverlay(QWidget):
@@ -96,7 +97,7 @@ class HeartsOverlay(QWidget):
             x = anchor.x() - self.x() + random.uniform(-26, 26) - pix.width() / 2
             y = anchor.y() - self.y() - pix.height() - random.uniform(0, 10)
             heart = _Heart(x, y, pix)
-            heart.delay = i * random.uniform(0.04, 0.09) if count > 3 else 0.0  # a burst pours out
+            heart.delay = i * random.uniform(0.07, 0.14) if count > 3 else 0.0  # a burst pours out
             self.hearts.append(heart)
         if not self._timer.isActive():
             self._last = time.perf_counter()
@@ -126,8 +127,9 @@ class HeartsOverlay(QWidget):
             if h.delay > 0:
                 continue
             t = h.age / h.life
-            alpha = 1.0 if t < 0.35 else max(0.0, 1.0 - (t - 0.35) / 0.65)  # fades slowly towards the end
-            x = h.x + h.sway * math.sin(h.age * 3.0 + h.phase)
+            u = min(1.0, max(0.0, (t - FADE_FROM) / (1.0 - FADE_FROM)))
+            alpha = 1.0 - u * u * (3.0 - 2.0 * u)  # smoothstep: eases out instead of dropping off
+            x = h.x + h.sway * math.sin(h.age * 1.8 + h.phase)
             if self.style == "robot":
                 if int(h.age * 16 + h.phase * 3) % 6 == 0:
                     continue  # a flicker, as if the signal drops for a frame
