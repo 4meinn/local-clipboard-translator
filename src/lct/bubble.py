@@ -85,6 +85,17 @@ class Bubble(QWidget):
         self._fit()
         self._show()
 
+    def show_status(self, text):
+        """A message that stays until the real answer replaces it, e.g. while the model loads."""
+        self._reset()
+        self._long = False
+        self._streaming = True  # keeps the fade timer off until the answer or an error arrives
+        self._view.setPlainText(text)
+        self._apply_interaction()
+        self._width = 0
+        self._fit()
+        self._show()
+
     def begin(self, long):
         """The translation is about to stream in. `long` picks the scrolling view."""
         self._dots_timer.stop()

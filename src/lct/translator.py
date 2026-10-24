@@ -1,8 +1,12 @@
+import http.client
 import json
 import logging
 import re
+import socket
 import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from PySide6.QtCore import QThread, Signal
@@ -48,6 +52,69 @@ def _open(path, payload=None, timeout=30):
         raise OllamaUnavailable(str(err)) from err
 
 
+class Cancel:
+    """A cancel flag that also cuts the connection to Ollama.
+
+    A request for a model that is still loading sits in Ollama's queue and sends nothing back,
+    so a thread blocked on it cannot notice a flag. Closing the socket wakes it up, and Ollama
+    drops requests whose client has gone, so stale copies no longer delay the newest one."""
+
+    def __init__(self):
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._conn = None
+
+    def is_set(self):
+        return self._event.is_set()
+
+    def set(self):
+        self._event.set()
+        with self._lock:
+            conn = self._conn
+        self._drop(conn)
+
+    def attach(self, conn):
+        with self._lock:
+            self._conn = conn
+        if self._event.is_set():
+            self._drop(conn)
+
+    @staticmethod
+    def _drop(conn):
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+def _post_stream(path, payload, cancel, timeout=300):
+    """POST and return the open response, or None if cancelled while waiting for it."""
+    parts = urllib.parse.urlsplit(HOST)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
+    try:
+        conn.connect()
+    except OSError as err:
+        raise OllamaUnavailable(str(err)) from err
+    cancel.attach(conn)
+    try:
+        conn.request("POST", path, body=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+    except (OSError, http.client.HTTPException) as err:
+        conn.close()
+        if cancel.is_set():
+            return None
+        raise OllamaUnavailable(str(err)) from err
+    if resp.status >= 400:
+        body = resp.read().decode("utf-8", "replace")
+        conn.close()
+        if resp.status == 404 and "not found" in body.lower():
+            raise ModelMissing(body)
+        raise OllamaError(f"HTTP {resp.status}: {body}")
+    return resp
+
+
 def list_models():
     with _open("/api/tags", timeout=5) as resp:
         names = [m["name"] for m in json.load(resp).get("models", [])]
@@ -90,17 +157,27 @@ def _options(processor, num_predict=None):
     return options
 
 
-def warm_up(model_setting, processor="gpu", keep_alive_min=10):
-    """Load the model into memory now, so the first translation does not wait for it."""
-    try:
-        model = pick_model(model_setting, list_models())
-        if model:
-            body = {"model": model, "messages": [], "keep_alive": f"{keep_alive_min}m",
-                    "options": _options(processor)}  # same options as real requests, or Ollama reloads
-            with _open("/api/chat", body, timeout=180):
-                pass
-    except (OllamaUnavailable, OllamaError, ModelMissing):
-        pass
+def warm_up(model_setting, processor="gpu", keep_alive_min=10, wait_seconds=300):
+    """Load the model into memory now, so the first translation does not wait for it.
+
+    When the app starts with Windows it often beats Ollama to it, so keep trying for a while
+    until Ollama answers instead of giving up after the first refusal."""
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            model = pick_model(model_setting, list_models())
+            if model:
+                body = {"model": model, "messages": [], "keep_alive": f"{keep_alive_min}m",
+                        "options": _options(processor)}  # same options as real requests, or Ollama reloads
+                with _open("/api/chat", body, timeout=300):
+                    pass
+            return
+        except OllamaUnavailable:
+            if time.monotonic() > deadline:
+                return
+            time.sleep(5)
+        except (OllamaError, ModelMissing):
+            return
 
 
 def chat_stream(model, system, user, cancel, num_predict=None, processor="gpu", keep_alive_min=10):
@@ -114,26 +191,32 @@ def chat_stream(model, system, user, cancel, num_predict=None, processor="gpu", 
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
     try:
-        resp = _open("/api/chat", payload, timeout=120)
+        resp = _post_stream("/api/chat", payload, cancel)
     except OllamaError as err:
         if "think" not in str(err).lower():
             raise
         payload.pop("think")  # model has no thinking switch
-        resp = _open("/api/chat", payload, timeout=120)
-    with resp:
-        for line in resp:
-            if cancel.is_set():
-                return
-            if not line.strip():
-                continue
-            msg = json.loads(line)
-            if "error" in msg:
-                raise OllamaError(msg["error"])
-            piece = msg.get("message", {}).get("content", "")
-            if piece:
-                yield piece
-            if msg.get("done"):
-                return
+        resp = _post_stream("/api/chat", payload, cancel)
+    if resp is None:
+        return
+    try:
+        with resp:
+            for line in resp:
+                if cancel.is_set():
+                    return
+                if not line.strip():
+                    continue
+                msg = json.loads(line)
+                if "error" in msg:
+                    raise OllamaError(msg["error"])
+                piece = msg.get("message", {}).get("content", "")
+                if piece:
+                    yield piece
+                if msg.get("done"):
+                    return
+    except (OSError, http.client.HTTPException):
+        if not cancel.is_set():
+            raise  # the connection dropped on its own, that is a real error
 
 
 DETECT_SYSTEM = (
@@ -207,6 +290,7 @@ class TranslationJob(QThread):
     text_delta = Signal(str)
     notice = Signal(str)  # a finished message instead of a translation (error, unsupported...)
     setup_needed = Signal()  # Ollama or the model is missing: the setup wizard can fix it
+    loading_model = Signal()  # the model is not in memory yet, the first answer will take a while
 
     def __init__(self, text, lang_a, lang_b, model_setting, tr, processor="gpu", keep_alive_min=10):
         super().__init__()
@@ -215,7 +299,7 @@ class TranslationJob(QThread):
         self.model_setting = model_setting
         self.tr = tr
         self.processor, self.keep_alive_min = processor, keep_alive_min
-        self.cancel_event = threading.Event()
+        self.cancel_event = Cancel()
 
     def cancel(self):
         self.cancel_event.set()
@@ -235,6 +319,11 @@ class TranslationJob(QThread):
                 self.setup_needed.emit()
                 self.notice.emit(self.tr("msg_no_model"))
                 return
+            try:
+                if self.model not in [name for name, _ in running_models()]:
+                    self.loading_model.emit()
+            except (OllamaUnavailable, OllamaError):
+                pass
             self._run()
         except OllamaUnavailable:
             self.setup_needed.emit()

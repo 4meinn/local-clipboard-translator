@@ -300,6 +300,7 @@ class Controller(QObject):
         job.text_delta.connect(self._on_delta)
         job.notice.connect(self._on_notice)
         job.setup_needed.connect(self._on_setup_needed)
+        job.loading_model.connect(self._on_loading_model)
         job.finished.connect(self._on_finished)
         self.jobs.add(job)
         self.job = job
@@ -321,6 +322,10 @@ class Controller(QObject):
         if self._current():
             self.shown_text += text
             self.bubble.append(text)
+
+    def _on_loading_model(self):
+        if self._current():
+            self.bubble.show_status(self.tr("msg_loading_model"))
 
     def _on_setup_needed(self):
         if self._current():
