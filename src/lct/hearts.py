@@ -20,9 +20,11 @@ HEART = [
 ]
 OUTLINE = QColor(32, 24, 30)
 SIZE = (360, 240)  # overlay window, wide enough for a burst and tall enough to rise in
-LIFE = (2.8, 3.8)  # seconds a heart lives
+LIFE = (2.2, 3.0)  # seconds a heart lives
 RISE = (16, 28)  # px per second, a lazy float
-FADE_FROM = 0.25  # share of its life a heart stays fully visible before it starts to fade
+FADE_FROM = 0.2  # share of its life a heart stays fully visible before it starts to fade
+LEAVE_DISTANCE = 70  # px the character may drift from where the hearts came out ...
+RUSH = 2.8  # ... before they are hurried along, so they do not hang in the air behind it
 
 
 def _lighter(color, amount=0.55):
@@ -82,6 +84,8 @@ class HeartsOverlay(QWidget):
         self.setFixedSize(*SIZE)
         self.hearts = []
         self.style = "classic"
+        self._anchor_x = 0
+        self._rush = 1.0  # how much faster than real time the hearts age
         self._last = time.perf_counter()
         self._timer = QTimer(self, interval=16)
         self._timer.timeout.connect(self._tick)
@@ -90,6 +94,8 @@ class HeartsOverlay(QWidget):
         """`anchor` is the global point on top of the character the hearts rise from."""
         if not self.hearts:  # a new burst: put the window around the character
             self.move(anchor.x() - SIZE[0] // 2, anchor.y() - SIZE[1] + 24)
+            self._rush = 1.0
+        self._anchor_x = anchor.x()
         self.style = style
         size = max(2, scale)
         for i in range(count):
@@ -104,6 +110,11 @@ class HeartsOverlay(QWidget):
             self._timer.start()
         self.show()
 
+    def character_moved(self, top_center):
+        """Called as the character moves: once it has walked or dashed away, the hearts hurry up and go."""
+        if self.hearts and abs(top_center.x() - self._anchor_x) > LEAVE_DISTANCE:
+            self._rush = RUSH
+
     def _tick(self):
         now = time.perf_counter()
         dt, self._last = min(now - self._last, 0.1), now
@@ -111,7 +122,7 @@ class HeartsOverlay(QWidget):
             if h.delay > 0:
                 h.delay -= dt
                 continue
-            h.age += dt
+            h.age += dt * self._rush
             h.y -= h.rise * dt
             h.x += h.vx * dt
         self.hearts = [h for h in self.hearts if h.age < h.life]

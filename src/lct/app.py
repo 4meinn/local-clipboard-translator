@@ -71,6 +71,7 @@ class Controller(QObject):
         self.mascot.clickable = store.clickable
         self.hearts = HeartsOverlay()
         self.mascot.hearts.connect(self._release_hearts)
+        self.mascot.moved.connect(self.hearts.character_moved)
         self.bubble = Bubble()
         self.bubble.seconds = store.bubble_seconds
         self.bubble.selectable = store.selectable
