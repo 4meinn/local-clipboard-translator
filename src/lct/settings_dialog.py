@@ -1,6 +1,6 @@
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout,
                                QLabel, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout,
                                QWidget)
 
@@ -23,6 +23,17 @@ def _icon_for(char_id):
     return QIcon(canvas)
 
 
+class Section(QFrame):
+    """A softly outlined card. Its title is a bold heading drawn above it (see _add_section),
+    which leaves room to breathe, unlike a group box title that sits on the border line."""
+
+    def __init__(self, title):
+        super().__init__()
+        self.title = title
+        self.setObjectName("section")
+        self.setStyleSheet("#section { border: 1px solid palette(mid); border-radius: 8px; }")
+
+
 class SettingsWindow(QWidget):
     quit_requested = Signal()
     setup_requested = Signal()
@@ -31,7 +42,7 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.store, self.tr = store, tr
         self.setWindowTitle(tr("win_title"))
-        self.setMinimumWidth(640)
+        self.setMinimumWidth(680)
         self._loading = True
 
         outer = QVBoxLayout(self)
@@ -43,9 +54,11 @@ class SettingsWindow(QWidget):
         scroll.setWidget(content)
         outer.addWidget(scroll)
         root = QVBoxLayout(content)
+        root.setContentsMargins(24, 20, 24, 24)
+        root.setSpacing(6)
 
         # Languages
-        box = QGroupBox(tr("grp_languages"))
+        box = Section(tr("grp_languages"))
         form = QFormLayout(box)
         self.lang_a, self.lang_b = QComboBox(), QComboBox()
         for combo in (self.lang_a, self.lang_b):
@@ -56,10 +69,10 @@ class SettingsWindow(QWidget):
         hint = QLabel(tr("lang_hint"))
         hint.setWordWrap(True)
         form.addRow(hint)
-        root.addWidget(box)
+        self._add_section(root, box)
 
         # Character
-        box = QGroupBox(tr("grp_character"))
+        box = Section(tr("grp_character"))
         col = QVBoxLayout(box)
         self.characters = QListWidget()
         self.characters.setViewMode(QListWidget.IconMode)
@@ -70,6 +83,11 @@ class SettingsWindow(QWidget):
         self.characters.setFixedHeight(2 * (ICON + 30) + 12)
         self.characters.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.characters.setSpacing(2)
+        # The sprites were drawn on this soft grey, so they read well in light and dark themes alike.
+        self.characters.setStyleSheet(
+            "QListWidget { background: #9b908a; border: none; border-radius: 8px; }"
+            "QListWidget::item { color: #1d1a1a; border-radius: 8px; }"
+            "QListWidget::item:selected { background: rgba(255, 255, 255, 105); color: #111111; }")
         for entry in load_manifest():
             item = QListWidgetItem(_icon_for(entry["id"]), entry["name"])
             item.setData(Qt.UserRole, entry["id"])
@@ -84,10 +102,10 @@ class SettingsWindow(QWidget):
         col.addLayout(row)
         self.clickable = QCheckBox(tr("chk_clickable"))
         col.addWidget(self.clickable)
-        root.addWidget(box)
+        self._add_section(root, box)
 
         # Bubble
-        box = QGroupBox(tr("grp_bubble"))
+        box = Section(tr("grp_bubble"))
         form = QFormLayout(box)
         self.selectable = QCheckBox(tr("chk_selectable"))
         self.duration = QDoubleSpinBox()
@@ -97,10 +115,10 @@ class SettingsWindow(QWidget):
         self.duration.setSuffix(tr("unit_seconds"))
         form.addRow(self.selectable)
         form.addRow(tr("lbl_duration"), self.duration)
-        root.addWidget(box)
+        self._add_section(root, box)
 
         # When to translate
-        box = QGroupBox(tr("grp_trigger"))
+        box = Section(tr("grp_trigger"))
         form = QFormLayout(box)
         self.trigger = QComboBox()
         for key in ("auto", "double", "hotkey"):
@@ -115,10 +133,10 @@ class SettingsWindow(QWidget):
         form.addRow(tr("lbl_hotkey"), self.hotkey)
         form.addRow(self.trigger_note)
         form.addRow(self.pause_fullscreen)
-        root.addWidget(box)
+        self._add_section(root, box)
 
         # Model
-        box = QGroupBox(tr("grp_model"))
+        box = Section(tr("grp_model"))
         col = QVBoxLayout(box)
         line = QHBoxLayout()
         self.model = QComboBox()
@@ -134,10 +152,10 @@ class SettingsWindow(QWidget):
         setup = QPushButton(tr("btn_setup"))
         setup.clicked.connect(self.setup_requested)
         col.addWidget(setup, 0, Qt.AlignLeft)
-        root.addWidget(box)
+        self._add_section(root, box)
 
         # Performance
-        box = QGroupBox(tr("grp_performance"))
+        box = Section(tr("grp_performance"))
         form = QFormLayout(box)
         self.processor = QComboBox()
         self.processor.addItem(tr("proc_gpu"), "gpu")
@@ -153,10 +171,10 @@ class SettingsWindow(QWidget):
         form.addRow(self.proc_note)
         form.addRow(tr("lbl_keep_alive"), self.keep_alive)
         form.addRow(self.running)
-        root.addWidget(box)
+        self._add_section(root, box)
 
         # General
-        box = QGroupBox(tr("grp_general"))
+        box = Section(tr("grp_general"))
         form = QFormLayout(box)
         self.autostart = QCheckBox(tr("chk_autostart"))
         self.ui_language = QComboBox()
@@ -165,13 +183,21 @@ class SettingsWindow(QWidget):
             self.ui_language.addItem(name, code)
         form.addRow(self.autostart)
         form.addRow(tr("lbl_ui_language"), self.ui_language)
-        root.addWidget(box)
+        self._add_section(root, box)
 
+        root.addStretch(1)  # extra window height goes here, not into the cards
+        root.addSpacing(18)
         footer = QHBoxLayout()
         footer.addWidget(QLabel(tr("hint_copy")), 1)
         quit_button = QPushButton(tr("tray_quit"))
         footer.addWidget(quit_button)
         root.addLayout(footer)
+
+        for section in content.findChildren(Section):  # generous padding and row spacing inside every card
+            section.layout().setContentsMargins(18, 16, 18, 16)
+            section.layout().setSpacing(12)
+            if isinstance(section.layout(), QFormLayout):
+                section.layout().setHorizontalSpacing(16)
 
         self._load_values()
         self._loading = False
@@ -196,6 +222,20 @@ class SettingsWindow(QWidget):
         self.ui_language.currentIndexChanged.connect(lambda: self._set("ui_language", self.ui_language.currentData()))
         refresh.clicked.connect(self.refresh_models)
         quit_button.clicked.connect(self.quit_requested)
+
+    @staticmethod
+    def _add_section(root, section):
+        """A bold heading with air above it, then the card right below the heading."""
+        if root.count() > 0:
+            root.addSpacing(18)
+        heading = QLabel(section.title)
+        font = heading.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 1.12)
+        heading.setFont(font)
+        heading.setContentsMargins(4, 0, 0, 0)
+        root.addWidget(heading)
+        root.addWidget(section)
 
     def _load_values(self):
         s = self.store
