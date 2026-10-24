@@ -28,8 +28,11 @@ class Settings:
     bubble_seconds: float = 6.0
     selectable: bool = False
     model: str = ""  # empty means pick the best installed model automatically
+    processor: str = "gpu"  # "gpu" or "cpu"
+    keep_alive_min: int = 10  # minutes the model stays in memory after the last translation
     ui_language: str = "auto"
     autostart: bool = False
+    setup_prompted: bool = False  # the setup wizard has been offered once automatically
     paused: bool = False
 
 

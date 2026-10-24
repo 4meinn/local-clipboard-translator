@@ -61,17 +61,37 @@ def pick_model(setting, installed):
     return installed[0] if installed else None
 
 
-def chat_stream(model, system, user, cancel, num_predict=None):
+def running_models():
+    """Models currently loaded in memory, as (name, share of the model held in VRAM 0..1)."""
+    with _open("/api/ps", timeout=5) as resp:
+        loaded = json.load(resp).get("models", [])
+    return [(m["name"], (m.get("size_vram", 0) / m["size"]) if m.get("size") else 0.0) for m in loaded]
+
+
+def unload_all():
+    """Drop every loaded model from memory. Needed after a CPU/GPU switch: Ollama keeps a
+    loaded model as it is and would otherwise ignore the new setting."""
+    try:
+        for name, _ in running_models():
+            with _open("/api/generate", {"model": name, "keep_alive": 0}, timeout=15):
+                pass
+    except (OllamaUnavailable, OllamaError, ModelMissing):
+        pass
+
+
+def chat_stream(model, system, user, cancel, num_predict=None, processor="gpu", keep_alive_min=10):
     """Yield text pieces from Ollama's chat endpoint until done or cancelled."""
     options = {"temperature": 0.1, "num_ctx": 4096}
     if num_predict:
         options["num_predict"] = num_predict
+    if processor == "cpu":
+        options["num_gpu"] = 0  # no layers on the graphics card
     payload = {
         "model": model,
         "stream": True,
         "think": False,
         "options": options,
-        "keep_alive": "30m",
+        "keep_alive": f"{keep_alive_min}m",
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
     try:
@@ -159,19 +179,24 @@ class TranslationJob(QThread):
     text_delta = Signal(str)
     notice = Signal(str)  # a finished message instead of a translation (error, unsupported...)
 
-    def __init__(self, text, lang_a, lang_b, model_setting, tr):
+    def __init__(self, text, lang_a, lang_b, model_setting, tr, processor="gpu", keep_alive_min=10):
         super().__init__()
         self.text = text.strip()
         self.lang_a, self.lang_b = lang_a, lang_b
         self.model_setting = model_setting
         self.tr = tr
+        self.processor, self.keep_alive_min = processor, keep_alive_min
         self.cancel_event = threading.Event()
 
     def cancel(self):
         self.cancel_event.set()
 
+    def _stream(self, system, user, num_predict=None):
+        return chat_stream(self.model, system, user, self.cancel_event, num_predict,
+                           self.processor, self.keep_alive_min)
+
     def _collect(self, system, user, num_predict):
-        return "".join(chat_stream(self.model, system, user, self.cancel_event, num_predict)).strip()
+        return "".join(self._stream(system, user, num_predict)).strip()
 
     def run(self):
         try:
@@ -218,7 +243,7 @@ class TranslationJob(QThread):
                 continue
             pending = ""  # whitespace is held back until more text follows, so no ragged ends
             first = True
-            for piece in chat_stream(self.model, system, body, self.cancel_event):
+            for piece in self._stream(system, body):
                 if first:
                     piece, first = piece.lstrip(), not piece.strip()
                     if first:

@@ -1,7 +1,8 @@
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
-                               QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget)
+                               QLabel, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout,
+                               QWidget)
 
 from lct import autostart, translator
 from lct.languages import NATIVE_NAME, SUPPORTED
@@ -23,6 +24,7 @@ def _icon_for(char_id):
 
 class SettingsWindow(QWidget):
     quit_requested = Signal()
+    setup_requested = Signal()
 
     def __init__(self, store, tr, ui_language_names):
         super().__init__()
@@ -31,7 +33,15 @@ class SettingsWindow(QWidget):
         self.setMinimumWidth(640)
         self._loading = True
 
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()  # keeps the window usable on small screens
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(content)
 
         # Languages
         box = QGroupBox(tr("grp_languages"))
@@ -100,6 +110,28 @@ class SettingsWindow(QWidget):
         self.status = QLabel()
         self.status.setWordWrap(True)
         col.addWidget(self.status)
+        setup = QPushButton(tr("btn_setup"))
+        setup.clicked.connect(self.setup_requested)
+        col.addWidget(setup, 0, Qt.AlignLeft)
+        root.addWidget(box)
+
+        # Performance
+        box = QGroupBox(tr("grp_performance"))
+        form = QFormLayout(box)
+        self.processor = QComboBox()
+        self.processor.addItem(tr("proc_gpu"), "gpu")
+        self.processor.addItem(tr("proc_cpu"), "cpu")
+        self.proc_note = QLabel()
+        self.proc_note.setWordWrap(True)
+        self.keep_alive = QComboBox()
+        for minutes in (1, 5, 10, 30, 60):
+            self.keep_alive.addItem(f"{minutes}{tr('unit_minutes')}", minutes)
+        self.running = QLabel()
+        self.running.setWordWrap(True)
+        form.addRow(tr("lbl_processor"), self.processor)
+        form.addRow(self.proc_note)
+        form.addRow(tr("lbl_keep_alive"), self.keep_alive)
+        form.addRow(self.running)
         root.addWidget(box)
 
         # General
@@ -122,6 +154,9 @@ class SettingsWindow(QWidget):
 
         self._load_values()
         self._loading = False
+        hint = content.sizeHint()
+        available = QGuiApplication.primaryScreen().availableGeometry().height()
+        self.resize(hint.width() + 4, min(hint.height() + 4, available - 80))
 
         self.lang_a.currentIndexChanged.connect(lambda: self._language_changed("lang_a"))
         self.lang_b.currentIndexChanged.connect(lambda: self._language_changed("lang_b"))
@@ -130,6 +165,8 @@ class SettingsWindow(QWidget):
         self.selectable.toggled.connect(lambda v: self._set("selectable", v))
         self.duration.valueChanged.connect(lambda v: self._set("bubble_seconds", float(v)))
         self.model.currentIndexChanged.connect(lambda: self._set("model", self.model.currentData() or ""))
+        self.processor.currentIndexChanged.connect(self._processor_changed)
+        self.keep_alive.currentIndexChanged.connect(lambda: self._set("keep_alive_min", self.keep_alive.currentData()))
         self.autostart.toggled.connect(self._autostart_changed)
         self.ui_language.currentIndexChanged.connect(lambda: self._set("ui_language", self.ui_language.currentData()))
         refresh.clicked.connect(self.refresh_models)
@@ -145,6 +182,9 @@ class SettingsWindow(QWidget):
         self.size.setCurrentIndex(max(0, self.size.findData(s.scale)))
         self.selectable.setChecked(s.selectable)
         self.duration.setValue(s.bubble_seconds)
+        self.processor.setCurrentIndex(max(0, self.processor.findData(s.processor)))
+        self.keep_alive.setCurrentIndex(max(0, self.keep_alive.findData(s.keep_alive_min)))
+        self._update_processor_note()
         self.autostart.setChecked(autostart.is_enabled())
         self.ui_language.setCurrentIndex(max(0, self.ui_language.findData(s.ui_language)))
         self.refresh_models()
@@ -165,6 +205,31 @@ class SettingsWindow(QWidget):
             self.model.addItem(name, name)
         self.model.setCurrentIndex(max(0, self.model.findData(self.store.model)))
         self._loading = was_loading
+        self._update_running()
+
+    def _update_running(self):
+        """Say where the model really runs, as reported by Ollama (it may fall back to the CPU)."""
+        try:
+            loaded = translator.running_models()
+        except (translator.OllamaUnavailable, translator.OllamaError):
+            loaded = []
+        if not loaded:
+            self.running.setText(self.tr("run_none"))
+            return
+        name, vram = loaded[0]
+        if vram >= 0.99:
+            self.running.setText(self.tr("run_gpu", model=name))
+        elif vram <= 0.01:
+            self.running.setText(self.tr("run_cpu", model=name))
+        else:
+            self.running.setText(self.tr("run_mixed", model=name, pct=round(vram * 100)))
+
+    def _update_processor_note(self):
+        self.proc_note.setText(self.tr("note_cpu" if self.processor.currentData() == "cpu" else "note_gpu"))
+
+    def _processor_changed(self):
+        self._update_processor_note()
+        self._set("processor", self.processor.currentData())
 
     def _set(self, key, value):
         if not self._loading:
@@ -193,6 +258,11 @@ class SettingsWindow(QWidget):
         if not self._loading:
             autostart.set_enabled(enabled)
             self.store.set("autostart", enabled)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._loading:
+            self.refresh_models()  # Ollama or the loaded model may have changed meanwhile
 
     def closeEvent(self, event):
         event.ignore()  # the app lives in the tray, closing only hides the window
