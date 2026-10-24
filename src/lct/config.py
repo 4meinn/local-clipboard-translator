@@ -58,6 +58,8 @@ class SettingsStore(QObject):
             return
         known = {f.name: f for f in fields(Settings)}
         for key, value in raw.items():
+            if key == "paused":
+                continue  # a pause is temporary; remembering it left people wondering why nothing translated
             if key in known and isinstance(value, type(getattr(self.values, key))):
                 setattr(self.values, key, value)
 

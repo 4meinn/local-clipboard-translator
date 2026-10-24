@@ -6,7 +6,7 @@ import time
 from collections import deque
 from logging.handlers import RotatingFileHandler
 
-from PySide6.QtCore import QObject, QTimer, Qt
+from PySide6.QtCore import QObject, QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -37,6 +37,14 @@ def app_icon():
     return QIcon(str(asset_path("icon.ico")))
 
 
+def paused_icon():
+    """The app icon greyed out, so a paused translator is visible at a glance in the tray."""
+    icon, dimmed = app_icon(), QIcon()
+    for size in (16, 24, 32, 48):
+        dimmed.addPixmap(icon.pixmap(QSize(size, size), QIcon.Mode.Disabled))
+    return dimmed
+
+
 def _shorten(text, limit=28):
     text = " ".join(text.split())
     return text if len(text) <= limit else text[:limit - 1] + "…"
@@ -56,6 +64,7 @@ class Controller(QObject):
         self.history = deque(maxlen=HISTORY_SIZE)  # (source, translation); only kept in memory
         self.fullscreen = False
         self._setup_offered = False
+        self._pause_hinted = False
         self._last_copy = ("", 0.0)  # text and time of the previous copy, for the double-copy mode
 
         self.mascot = Mascot(store.character, store.scale)
@@ -109,7 +118,8 @@ class Controller(QObject):
     # --- tray and menus --------------------------------------------------------------
 
     def _build_menu(self):
-        self.tray.setToolTip(self.tr("tray_tooltip"))
+        self.tray.setToolTip(self.tr("tray_tooltip_paused" if self.store.paused else "tray_tooltip"))
+        self.tray.setIcon(paused_icon() if self.store.paused else app_icon())
         self.menu = QMenu()
         settings = QAction(self.tr("tray_settings"), self.menu)
         settings.triggered.connect(self.show_settings)
@@ -206,6 +216,7 @@ class Controller(QObject):
         elif key == "pause_fullscreen":
             self._poll_fullscreen()
         elif key == "paused":
+            self._pause_hinted = False
             self._build_menu()
             if s.paused:
                 self._stop_job()
@@ -239,10 +250,17 @@ class Controller(QObject):
 
     def _clipboard_settled(self):
         mode = self.store.trigger
-        if mode == "hotkey" or not self._active():
+        if mode == "hotkey":
             return  # in hotkey mode copying alone never translates
         text = self._clipboard_text()
         if text is None:
+            return
+        if self.store.paused:
+            if not self._pause_hinted:  # say so once, so a forgotten pause does not look like a bug
+                self._pause_hinted = True
+                self._say(self.tr("msg_paused"))
+            return
+        if not self._active():
             return
         if self.bubble.isVisible() and text in self.shown_text:
             return  # the user copied from our own bubble
@@ -255,7 +273,14 @@ class Controller(QObject):
             self._last_copy = ("", 0.0)
         self._translate(text)
 
+    def _say(self, text):
+        self.mascot.hold = True
+        self.bubble.notice(text)
+
     def _hotkey_pressed(self):
+        if self.store.paused:
+            self._say(self.tr("msg_paused"))  # pressing the hotkey is explicit, so always answer
+            return
         if not self._active():
             return
         text = self._clipboard_text()
