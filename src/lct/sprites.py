@@ -50,8 +50,14 @@ def load_character(char_id, scale):
         frame = frame.scaled(w * scale, h * scale, Qt.IgnoreAspectRatio, Qt.FastTransformation)
         char.frames.append(QPixmap.fromImage(frame))
         char.frames_flipped.append(QPixmap.fromImage(frame.mirrored(True, False)))
-    if char.walk_frames is None:
-        char.walk_frames = list(range(len(char.frames)))
+    count = len(char.frames)
+    # The sheet frames are not a seamless loop (the last one does not lead back into the first),
+    # so cycles run there and back: 0 1 2 3 2 1, instead of snapping from 3 to 0.
+    char.walk_frames = _there_and_back(char.walk_frames or list(range(count)))
     if char.fidget_frames is None:
-        char.fidget_frames = list(range(len(char.frames)))
+        char.fidget_frames = list(range(1, count)) + list(range(count - 2, 0, -1))  # then back to idle
     return char
+
+
+def _there_and_back(frames):
+    return list(frames) + list(frames[-2:0:-1])

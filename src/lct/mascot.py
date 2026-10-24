@@ -57,7 +57,10 @@ class Mascot(QWidget):
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.PreciseTimer)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(33)  # ~30 fps is plenty for a sprite that moves slowly
+        # 16 ms, not 33: at a calm 20 px/s the sprite advances one pixel every 50 ms, and a 33 ms tick
+        # makes those pixel steps alternate between 33 and 66 ms, which shows up as judder.
+        # The window is still only moved or repainted when something actually changed.
+        self._timer.start(16)
 
     def set_character(self, char_id, scale):
         self.char = load_character(char_id, scale)
