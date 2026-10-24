@@ -1,7 +1,7 @@
 """Slice assets/source/TL_Creatures.png into one transparent strip per character.
 
 The source sheet is RGB with a two-colour checkerboard background, 32x32 cells,
-5 columns starting at (64, 32), one character per row. Run from the repo root:
+5 columns starting at (64, 32), one character per row (only the first 4 are used). Run from the repo root:
 
     python tools/slice_sprites.py
 """
@@ -16,7 +16,7 @@ OUT = ROOT / "assets" / "characters"
 
 CELL = 32
 ORIGIN = (64, 32)
-COLUMNS = 5
+COLUMNS = 4  # the sheet has 5; the fifth is a "hurt" frame that breaks the walk cycle
 BACKGROUNDS = {(157, 142, 135), (145, 112, 92)}
 
 CHARACTERS = [
