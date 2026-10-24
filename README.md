@@ -28,7 +28,7 @@ You do not have to prepare any of this by hand. On first launch the setup wizard
 ## Using it
 
 - **When it translates** (settings): every copy, only when you copy the same text twice, or when you press a global hotkey after copying. The hotkey mode is handy if you copy a lot of code or file paths.
-- **Fullscreen apps:** while a game, a fullscreen video or a presentation is in front, translating pauses and the character walks off screen. It walks back in when you leave fullscreen.
+- **Fullscreen apps:** while a game, a fullscreen video or a presentation is in front, translating pauses. The character says goodbye in your Windows language (Turkish, German or English, otherwise English) and walks off screen. It walks back in when you leave fullscreen.
 - **Pause:** "Pause translating" in the tray menu stops translating but the character keeps strolling.
 - **History:** the tray menu keeps the last 20 translations. Click one to see it in the bubble again. The history only lives in memory and is gone when you quit.
 - **Warm start:** the model is loaded in the background when the app starts, so the first translation is as fast as the rest.

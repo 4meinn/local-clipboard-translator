@@ -183,6 +183,27 @@ NOT_IN_PAIR = {
 }
 
 
+# Said when the character walks off because a fullscreen app took over. It follows the
+# Windows display language, not the app's interface language setting; anything else gets English.
+FAREWELL = {
+    "tr": "İyi eğlenceler, sonra görüşürüz!",
+    "de": "Viel Spaß, bis später!",
+    "en": "Have fun, see you later!",
+}
+
+_PRIMARY_LANGUAGE_IDS = {0x1F: "tr", 0x07: "de", 0x09: "en"}
+
+
+def windows_language():
+    """'tr', 'de' or 'en' from the Windows display language, 'en' for anything else."""
+    try:
+        import ctypes
+        langid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+    except (AttributeError, OSError, ImportError):
+        return "en"
+    return _PRIMARY_LANGUAGE_IDS.get(langid & 0x3FF, "en")
+
+
 def resolve_ui_language(setting):
     if setting in STRINGS:
         return setting

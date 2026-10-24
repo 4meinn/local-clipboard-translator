@@ -20,13 +20,14 @@ from lct.mascot import Mascot
 from lct.resources import asset_path
 from lct.settings_dialog import SettingsWindow
 from lct.setup_wizard import SetupWizard, current_state
-from lct.strings import Translator, resolve_ui_language
+from lct.strings import FAREWELL, Translator, resolve_ui_language, windows_language
 from lct.translator import TranslationJob, unload_all, warm_up
 
 APP_ID = "LocalClipboardTranslator"
 UI_LANGUAGE_NAMES = {"en": "English", "tr": "Türkçe"}
 DEBOUNCE_MS = 150
 DOUBLE_COPY_SECONDS = 1.5  # two copies of the same text within this time count as a request
+FAREWELL_MS = 2600  # how long the goodbye bubble stays before the character walks off
 FULLSCREEN_POLL_MS = 2000
 HISTORY_SIZE = 20
 
@@ -79,6 +80,8 @@ class Controller(QObject):
         app.aboutToQuit.connect(self.hotkeys.unregister)
         self._apply_hotkey()
 
+        self.leave_timer = QTimer(self, singleShot=True)
+        self.leave_timer.timeout.connect(self._leave)
         self.fullscreen_timer = QTimer(self, interval=FULLSCREEN_POLL_MS)
         self.fullscreen_timer.timeout.connect(self._poll_fullscreen)
         self.fullscreen_timer.start()
@@ -263,8 +266,23 @@ class Controller(QObject):
         self.fullscreen = busy
         if busy:
             self._stop_job()
-            self.bubble.close_now()
-        self.mascot.set_away(busy)
+            self._say_goodbye()
+        else:
+            self.leave_timer.stop()
+            self.mascot.set_away(False)
+
+    def _say_goodbye(self):
+        """A short farewell in the Windows language, then the walk off screen."""
+        self.mascot.hold = True
+        self.noticed = True
+        self.shown_text = FAREWELL[windows_language()]
+        self.bubble.notice(self.shown_text)
+        self.leave_timer.start(FAREWELL_MS)
+
+    def _leave(self):
+        if self.fullscreen:
+            self.bubble.close_now()  # nothing should linger over the game
+            self.mascot.set_away(True)
 
     def _translate(self, text):
         self._stop_job()
