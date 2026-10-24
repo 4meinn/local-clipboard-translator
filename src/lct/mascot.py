@@ -18,11 +18,11 @@ AWAY_SPEED = 120.0  # brisk walk off screen when a fullscreen app takes over
 PET_CHAIN = 1.0  # clicks closer together than this (seconds) count as one run of petting
 PET_REST = 1.6  # the character stays put this long after the last click
 OVERWHELM_AT = 8  # clicks in one run before it has had enough
-# The "too much love" dash: a run of about a third of the screen, at a speed that scales with the
+# The "too much love" dash: a run of about a seventh of the screen, at a speed that scales with the
 # character so that small and large ones both look like they are really bolting.
 SPRINT_ACCEL, SPRINT_BRAKE = 700.0, 400.0
 SPRINT_BODY_LENGTHS_PER_SECOND, SPRINT_MIN_SPEED = 4.5, 200.0
-SPRINT_SCREEN_SHARE, SPRINT_MIN_DISTANCE, SPRINT_MAX_DISTANCE = 0.30, 350.0, 700.0
+SPRINT_SCREEN_SHARE, SPRINT_MIN_DISTANCE, SPRINT_MAX_DISTANCE = 0.15, 175.0, 350.0
 
 HOVER_MOVE_WINDOW = 0.25  # the pointer must have been moved this recently to "grab" the character
 HOVER_RELEASE_AFTER = 0.15  # and it must stay off the character this long before it is let go
@@ -211,9 +211,11 @@ class Mascot(QWidget):
         self._phase_left -= dt
         if self._sprint_left > 0:
             self._sprint_left -= dt
-            if self._sprint_left <= 0:  # dash over, back to the normal stroll
+            if self._sprint_left <= 0:  # dash over, back to the normal stroll, same way it was heading
+                heading = self._dir
                 self._walking = False
                 self._begin_phase()
+                self._dir = heading
         elif self._phase_left <= 0 and not (self.hold or petted):
             self._begin_phase()
 
