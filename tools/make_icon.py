@@ -1,33 +1,40 @@
-"""Build assets/icon.ico (used by the exe and the installer) from a character sprite.
+"""Build assets/icon.ico (exe, installer, tray, windows) from assets/logo_pixel.png.
 
-    python tools/make_icon.py [character_id]
+    python tools/make_icon.py
+
+logo_pixel.png is the logo at its true size (22x23 pixels). It is enlarged by whole-number
+factors so the pixel edges stay sharp; only the 16 px size has to be averaged down.
+assets/logo.png is the same artwork enlarged to 1024 px for the README.
 """
-import json
-import sys
 from pathlib import Path
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-CHARACTERS = ROOT / "assets" / "characters"
+LOGO = ROOT / "assets" / "logo_pixel.png"
+ICON = ROOT / "assets" / "icon.ico"
 SIZES = [16, 24, 32, 48, 64, 128, 256]
 
 
-def main():
-    char_id = sys.argv[1] if len(sys.argv) > 1 else "berry"
-    manifest = json.loads((CHARACTERS / "characters.json").read_text("utf-8"))
-    entry = next(e for e in manifest if e["id"] == char_id)
-    w, h = entry["frame_width"], entry["frame_height"]
-    sprite = Image.open(CHARACTERS / f"{char_id}.png").convert("RGBA").crop((0, 0, w, h))
+def render(pix, size):
+    margin = 0 if size <= 32 else size // 32
+    room = size - 2 * margin
+    k = room // max(pix.size)
+    if k >= 1:
+        art = pix.resize((pix.width * k, pix.height * k), Image.NEAREST)
+    else:  # smaller than the artwork itself: average it down
+        scale = room / max(pix.size)
+        art = pix.resize((max(1, round(pix.width * scale)), max(1, round(pix.height * scale))), Image.LANCZOS)
+    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    icon.paste(art, ((size - art.width) // 2, (size - art.height) // 2), art)
+    return icon
 
-    side = max(w, h) + 4
-    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-    canvas.paste(sprite, ((side - w) // 2, side - h - 2))
-    scale = 256 // side
-    big = canvas.resize((side * scale, side * scale), Image.NEAREST)
-    icon = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-    icon.paste(big, ((256 - big.width) // 2, (256 - big.height) // 2))
-    icon.save(ROOT / "assets" / "icon.ico", sizes=[(s, s) for s in SIZES])
+
+def main():
+    pix = Image.open(LOGO).convert("RGBA")
+    frames = [render(pix, s) for s in SIZES]
+    frames[-1].save(ICON, sizes=[(s, s) for s in SIZES], append_images=frames[:-1])
+    print("wrote", ICON)
 
 
 if __name__ == "__main__":

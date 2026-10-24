@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" alt="Local Clipboard Translator logo" width="160"></p>
+
 # Local Clipboard Translator
 
 A tiny pixel character walks along your taskbar. Copy any text and it answers with a speech bubble containing the translation. Everything runs on your own machine: no cloud, no API keys, no subscription. The only time you go online is to download the model once.

@@ -5,7 +5,7 @@ import threading
 from logging.handlers import RotatingFileHandler
 
 from PySide6.QtCore import QObject, QTimer, Qt
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QGuiApplication, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -13,10 +13,10 @@ from lct import __version__
 from lct.bubble import Bubble
 from lct.config import MAX_CHARS, SettingsStore, data_dir
 from lct.mascot import Mascot
+from lct.resources import asset_path
 from lct.settings_dialog import SettingsWindow
 from lct.setup_wizard import SetupWizard, current_state
-from lct.sprites import load_character
-from lct.strings import STRINGS, Translator, resolve_ui_language
+from lct.strings import Translator, resolve_ui_language
 from lct.translator import TranslationJob, unload_all
 
 APP_ID = "LocalClipboardTranslator"
@@ -24,14 +24,8 @@ UI_LANGUAGE_NAMES = {"en": "English", "tr": "Türkçe"}
 DEBOUNCE_MS = 150
 
 
-def character_icon(char_id):
-    pix = load_character(char_id, 2).frames[0]
-    canvas = QPixmap(48, 48)
-    canvas.fill(Qt.transparent)
-    painter = QPainter(canvas)
-    painter.drawPixmap((48 - pix.width()) // 2, 48 - pix.height() - 2, pix)
-    painter.end()
-    return QIcon(canvas)
+def app_icon():
+    return QIcon(str(asset_path("icon.ico")))
 
 
 class Controller(QObject):
@@ -55,7 +49,7 @@ class Controller(QObject):
         self.mascot.menu_requested.connect(self._show_menu)
         self.bubble.closed.connect(self._bubble_closed)
 
-        self.tray = QSystemTrayIcon(character_icon(store.character))
+        self.tray = QSystemTrayIcon(app_icon())
         self.tray.activated.connect(self._tray_activated)
         self._build_menu()
         self.tray.show()
@@ -97,7 +91,6 @@ class Controller(QObject):
     def show_settings(self):
         if self.settings_window is None:
             self.settings_window = SettingsWindow(self.store, self.tr, UI_LANGUAGE_NAMES)
-            self.settings_window.setWindowIcon(character_icon(self.store.character))
             self.settings_window.quit_requested.connect(self.app.quit)
             self.settings_window.setup_requested.connect(self.show_wizard)
         self.settings_window.show()
@@ -127,9 +120,6 @@ class Controller(QObject):
         s = self.store
         if key in ("character", "scale"):
             self.mascot.set_character(s.character, s.scale)
-            self.tray.setIcon(character_icon(s.character))
-            if self.settings_window:
-                self.settings_window.setWindowIcon(character_icon(s.character))
         elif key == "bubble_seconds":
             self.bubble.seconds = s.bubble_seconds
         elif key == "selectable":
@@ -250,6 +240,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_ID)
     app.setApplicationVersion(__version__)
+    app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
 
