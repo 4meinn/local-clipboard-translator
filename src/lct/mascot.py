@@ -8,8 +8,9 @@ from PySide6.QtWidgets import QWidget
 
 from lct.sprites import load_character
 
-ACCEL = 140.0  # px/s^2, so starts, stops and turns look gradual
-MIN_SPEED, MAX_SPEED = 22.0, 95.0
+ACCEL = 40.0  # px/s^2, so starts, stops and turns look gradual
+MIN_SPEED, MAX_SPEED = 14.0, 30.0  # a calm stroll; the pace only drifts a little between phases
+TAKEOFF_SPEED = 18.0  # flying characters are fully airborne from this speed
 
 
 class Mascot(QWidget):
@@ -52,15 +53,17 @@ class Mascot(QWidget):
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.PreciseTimer)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(33)  # ~30 fps is plenty for a sprite that moves under 100 px/s
+        self._timer.start(33)  # ~30 fps is plenty for a sprite that moves slowly
 
     def set_character(self, char_id, scale):
         self.char = load_character(char_id, scale)
+        self._scale = scale
         w = max(p.width() for p in self.char.frames)
         h = max(p.height() for p in self.char.frames)
-        self._bob = 3 * scale if self.char.floating else 0
-        self.setFixedSize(w, h + self._bob * 2)
-        self._frame = 0
+        self._pad = (self.char.hover + self.char.bob) * scale  # head room for flying characters
+        self.setFixedSize(w, h + self._pad)
+        self._frame = self.char.idle_frame
+        self._step = 0
         self._pos = None  # force a move and an anchor update for the new size
         self._shown_state = None
         self._place()
@@ -80,12 +83,16 @@ class Mascot(QWidget):
         if pos != self._pos:  # touching the window when nothing changed only causes flicker
             self._pos = pos
             self.move(*pos)
-            self.moved.emit(QPoint(pos[0] + self.width() // 2, pos[1] + self._bob))
+            self.moved.emit(QPoint(pos[0] + self.width() // 2, pos[1] + self._pad))
 
-    def _bob_offset(self):
-        if not self.char.floating:
+    def _lift(self):
+        """Pixels the sprite is raised off the ground: hovering and bobbing for flyers."""
+        c = self.char
+        if not (c.floating or c.flying):
             return 0
-        return round(self._bob * math.sin((time.perf_counter() - self._t0) * 2.2))
+        airborne = 1.0 if c.floating else min(1.0, self._speed / TAKEOFF_SPEED)
+        wave = math.sin((time.perf_counter() - self._t0) * 2.2)
+        return max(0, round(airborne * (c.hover + c.bob * wave) * self._scale))
 
     # --- behaviour -------------------------------------------------------------------
 
@@ -93,20 +100,20 @@ class Mascot(QWidget):
         """Pick what to do next: wander at some speed, stand around, or turn back."""
         roll = random.random()
         if self._walking:
-            if roll < 0.40:
-                self._walking, self._phase_left = False, random.uniform(1.5, 6.0)
-                if random.random() < 0.4:
+            if roll < 0.35:
+                self._walking, self._phase_left = False, random.uniform(3.0, 9.0)
+                if random.random() < 0.3:
                     self._dir = -self._dir
-            elif roll < 0.60:
+            elif roll < 0.45:
                 self._dir = -self._dir
-                self._phase_left = random.uniform(2.0, 7.0)
+                self._phase_left = random.uniform(5.0, 12.0)
             else:
-                self._phase_left = random.uniform(2.5, 9.0)
+                self._phase_left = random.uniform(5.0, 14.0)
         else:
             self._walking = True
-            if random.random() < 0.4:
+            if random.random() < 0.3:
                 self._dir = -self._dir
-            self._phase_left = random.uniform(3.0, 10.0)
+            self._phase_left = random.uniform(6.0, 14.0)
         self._target = random.uniform(MIN_SPEED, MAX_SPEED) if self._walking else 0.0
 
     def _tick(self):
@@ -133,7 +140,7 @@ class Mascot(QWidget):
         self._facing = self._dir
         self._advance_frame(dt)
         self._place()
-        state = (self._frame, self._facing, self._bob_offset())
+        state = (self._frame, self._facing, self._lift())
         if state != self._shown_state:  # repaint only when the picture actually changes
             self._shown_state = state
             self.update()
@@ -146,16 +153,20 @@ class Mascot(QWidget):
                 self._frame_clock = 0
                 self._frame = (self._frame + 1) % frames
             return
+        walk = self.char.walk_frames
         if self._speed > 6:
             self._fidget_left = 0
-            # Legs move faster when the stroll does.
-            interval = (self.char.frame_ms / 1000) * (55.0 / max(self._speed, 25.0))
+            if self._frame not in walk:
+                self._frame, self._step = walk[0], 0
+            # Steps follow the pace of the stroll, within sensible limits.
+            interval = (self.char.frame_ms / 1000) * min(max(30.0 / self._speed, 0.8), 1.8)
             self._frame_clock += dt
             if self._frame_clock >= interval:
                 self._frame_clock = 0
-                self._frame = (self._frame + 1) % frames
+                self._step = (self._step + 1) % len(walk)
+                self._frame = walk[self._step]
             return
-        # Standing: rest on the first frame, now and then shuffle through the others.
+        # Standing: rest on the idle frame, and (if the character does it) shuffle now and then.
         if self._fidget_left > 0:
             self._frame_clock += dt
             if self._frame_clock >= 0.22:
@@ -163,13 +174,14 @@ class Mascot(QWidget):
                 self._frame = (self._frame + 1) % frames
                 self._fidget_left -= 1
                 if self._fidget_left == 0:
-                    self._frame = 0
+                    self._frame = self.char.idle_frame
         else:
-            self._frame = 0
-            self._next_fidget -= dt
-            if self._next_fidget <= 0:
-                self._fidget_left = frames
-                self._next_fidget = random.uniform(3, 8)
+            self._frame = self.char.idle_frame
+            if self.char.fidget:
+                self._next_fidget -= dt
+                if self._next_fidget <= 0:
+                    self._fidget_left = frames
+                    self._next_fidget = random.uniform(5, 12)
 
     # --- painting --------------------------------------------------------------------
 
@@ -178,5 +190,5 @@ class Mascot(QWidget):
         pix = frames[self._frame % len(frames)]
         painter = QPainter(self)
         x = (self.width() - pix.width()) // 2
-        y = self.height() - self._bob - pix.height() + self._bob_offset()
+        y = self.height() - pix.height() - self._lift()
         painter.drawPixmap(x, y, pix)

@@ -6,10 +6,14 @@ from PySide6.QtGui import QImage, QPixmap
 
 from lct.resources import asset_path
 
-# Per-character quirks: floating characters bob and flap instead of walking, and some
-# sheets list frames that read better as a slower cycle.
+# Per-character quirks. Sizes are in sprite pixels, multiplied by the display scale.
+#   floating: airborne all the time and flaps instead of walking (hover + bob)
+#   flying:   on the ground while standing, rises and bobs while moving
+#   walk_frames / idle_frame / fidget: which frames to use for moving, resting and shuffling
 PROFILES = {
-    "balloon": {"floating": True, "frame_ms": 380},
+    "balloon": {"floating": True, "frame_ms": 380, "hover": 3, "bob": 3},
+    # Kitty's first frame is the grounded pose, the other three are in flight.
+    "kitty": {"flying": True, "walk_frames": [1, 2, 3], "fidget": False, "hover": 2, "bob": 1},
 }
 
 
@@ -20,7 +24,13 @@ class Character:
     frames: list = field(default_factory=list)  # facing right
     frames_flipped: list = field(default_factory=list)  # facing left
     floating: bool = False
+    flying: bool = False
     frame_ms: int = 140
+    walk_frames: list = None
+    idle_frame: int = 0
+    fidget: bool = True
+    hover: int = 0
+    bob: int = 0
 
 
 def load_manifest():
@@ -37,4 +47,6 @@ def load_character(char_id, scale):
         frame = frame.scaled(w * scale, h * scale, Qt.IgnoreAspectRatio, Qt.FastTransformation)
         char.frames.append(QPixmap.fromImage(frame))
         char.frames_flipped.append(QPixmap.fromImage(frame.mirrored(True, False)))
+    if char.walk_frames is None:
+        char.walk_frames = list(range(len(char.frames)))
     return char
