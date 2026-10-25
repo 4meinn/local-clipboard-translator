@@ -19,7 +19,7 @@ Everything runs locally through [Ollama](https://ollama.com): no cloud, no API k
 ## Demo
 
 <p align="center">
-  <img src="docs/img/demo-row.png" alt="Characters on the taskbar, with a live translation in the middle" width="820">
+  <img src="docs/img/demo-row.png" alt="The app translating on the taskbar in Turkish, German and English" width="720">
 </p>
 
 Copy some text in one language and a speech bubble appears above the character with the translation in the other. The app lives in the system tray with a settings window and ships as a normal Windows installer.
