@@ -1,0 +1,65 @@
+[
+  {
+    "id": "berry",
+    "name": "Berry",
+    "frames": 4,
+    "frame_width": 19,
+    "frame_height": 21
+  },
+  {
+    "id": "hermit",
+    "name": "Hermit",
+    "frames": 4,
+    "frame_width": 19,
+    "frame_height": 13
+  },
+  {
+    "id": "balloon",
+    "name": "Balloon",
+    "frames": 2,
+    "frame_width": 14,
+    "frame_height": 29
+  },
+  {
+    "id": "sprout_bot",
+    "name": "Sprout Bot",
+    "frames": 4,
+    "frame_width": 20,
+    "frame_height": 18
+  },
+  {
+    "id": "blob",
+    "name": "Blob",
+    "frames": 4,
+    "frame_width": 16,
+    "frame_height": 24
+  },
+  {
+    "id": "kitty",
+    "name": "Kitty",
+    "frames": 4,
+    "frame_width": 21,
+    "frame_height": 26
+  },
+  {
+    "id": "beetle",
+    "name": "Beetle",
+    "frames": 4,
+    "frame_width": 17,
+    "frame_height": 20
+  },
+  {
+    "id": "tv_bot",
+    "name": "TV Bot",
+    "frames": 4,
+    "frame_width": 20,
+    "frame_height": 23
+  },
+  {
+    "id": "ghost",
+    "name": "Ghost",
+    "frames": 4,
+    "frame_width": 18,
+    "frame_height": 16
+  }
+]
