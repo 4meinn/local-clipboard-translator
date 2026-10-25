@@ -69,9 +69,9 @@ No administrator rights are required. Settings and the log are removed on uninst
 
 ## Antivirus note
 
-This app is packaged with PyInstaller and Inno Setup. Microsoft Defender's machine-learning heuristic may flag the installer as `Trojan:Win32/Wacatac.B!ml`. This is a known false positive for PyInstaller builds, not a real detection: the app is built from the source in this repository, talks only to a local Ollama on `127.0.0.1`, and makes no other network connection.
+This app is packaged with PyInstaller and Inno Setup. Two machine-learning scanners may flag the installer: Microsoft Defender's heuristic (`Trojan:Win32/Wacatac.B!ml`) and Deep Instinct. Both are generic machine-learning verdicts with no named malware family, a common false positive for unsigned PyInstaller builds, not a real detection: the app is built from the source in this repository, talks only to a local Ollama on `127.0.0.1`, and makes no other network connection.
 
-VirusTotal scan of the installer: [1 of 68, heuristic only](https://www.virustotal.com/gui/file/3729bf4606af5a78a683bbf27e3b47fff9b241559097c45339c3bfe3b70835cd). If in doubt, build it yourself from source (see below), or report the false positive to Microsoft at [microsoft.com/wdsi/filesubmission](https://www.microsoft.com/wdsi/filesubmission).
+VirusTotal scan of the installer: [2 of 69, both machine-learning heuristics (Microsoft and Deep Instinct)](https://www.virustotal.com/gui/file/5b1189267d3c5c30e59cb1381a185057d03033cc2032071e47adbd0105a8fa6a). If in doubt, build it yourself from source (see below), or report the false positive to Microsoft at [microsoft.com/wdsi/filesubmission](https://www.microsoft.com/wdsi/filesubmission).
 
 ## Translation quality
 
