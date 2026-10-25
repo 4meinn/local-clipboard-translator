@@ -105,7 +105,7 @@ This installs the build extras, regenerates the icon, runs PyInstaller (one fold
 
 ## How it is built
 
-Python 3.14 with PySide6 (Qt 6). The only runtime dependency is PySide6; the Ollama client uses the standard library. Source lives in `src/lct/`. See [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) for the architecture, the decisions behind the app and the build log.
+Python 3.14 with PySide6 (Qt 6). The only runtime dependency is PySide6; the Ollama client uses the standard library. Source lives in `src/lct/`.
 
 ## Credits
 
