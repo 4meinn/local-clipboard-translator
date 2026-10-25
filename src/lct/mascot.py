@@ -34,6 +34,20 @@ if _user32:
     _user32.GetWindowLongW.restype = ctypes.c_long
     _user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
     _user32.SetWindowLongW.restype = ctypes.c_long
+    _user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+
+
+def _mouse_button_down():
+    """The real state of the mouse buttons, straight from Windows.
+
+    Not Qt's QGuiApplication.mouseButtons(): that is only the state at the last mouse event Qt saw.
+    The character window ignores the mouse almost all of the time, and a click that Windows handles by
+    itself (the minimize button of another window of ours) can leave Qt's copy stuck on 'pressed'.
+    With nothing delivering new mouse events, it then stayed stuck, and the character treated every
+    visit of the pointer as a drag started in another app and never took the mouse."""
+    if not _user32:
+        return QGuiApplication.mouseButtons() != Qt.NoButton
+    return any(_user32.GetAsyncKeyState(vk) & 0x8000 for vk in (0x01, 0x02, 0x04))  # left, right, middle
 
 
 class Mascot(QWidget):
@@ -298,8 +312,7 @@ class Mascot(QWidget):
             self._set_click_through(True)
             return
         now = time.perf_counter()
-        buttons = QGuiApplication.mouseButtons()
-        if buttons == Qt.NoButton:
+        if not _mouse_button_down():
             self._pressing = False
         elif not self._pressing:
             self._grabbed = False
